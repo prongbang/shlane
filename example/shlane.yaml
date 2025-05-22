@@ -1,0 +1,43 @@
+# fasttool.yaml
+
+# Global environment variables (available in all lanes and scripts)
+env:
+  APP_ENV: "production"
+  API_KEY: "abc123"
+
+# Optional shared Rhai script file to define reusable functions
+script: |-
+  fn greet(name) {
+      print("Hello from shared function, " + name + "!");
+  }
+
+# Define multiple lanes
+lanes:
+  build:
+    before:
+      - echo "Setting up build environment"
+    script: |
+      greet("Tester");
+    steps:
+      - run: "cargo build --release"
+    after:
+      - echo "Build completed"
+
+  test:
+    steps:
+      - run: "cargo test"
+
+  deploy:
+    before:
+      - echo "Deploying to server"
+    steps:
+      - run: "echo Deploying ${target}"
+    script: |
+      let target = param("target");
+      if target == env("APP_ENV") {
+        let result = run("echo Deploying to production server");
+      } else {
+        let result = run("echo Deploying to staging server");
+      }
+    after:
+      - echo "Deploy done"
