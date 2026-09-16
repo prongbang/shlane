@@ -2,6 +2,7 @@
 name = "shlane"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.74"
 description = "A fastlane-like automation tool written in Rust with Rhai scripting support"
 authors = ["prongbang"]
 license = "Apache-2.0"
@@ -20,7 +21,6 @@ serde_yaml = "0.9"
 # Optimize for size and performance
 lto = true
 codegen-units = 1
-panic = "abort"
 strip = true
 
 [[bin]]

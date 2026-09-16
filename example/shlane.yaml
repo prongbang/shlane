@@ -1,25 +1,29 @@
-# fasttool.yaml
+# shlane.yaml — example configuration
+#
+# Run it from this directory:
+#   shlane run build
+#   shlane run deploy target=production
 
-# Global environment variables (available in all lanes and scripts)
+# Environment variables handed to every command in every lane.
+# Keep secrets out of this file — read them from the environment instead:
+#   API_KEY: ${API_KEY}   <- planned for M2, see docs/plan/10-secrets-and-env.md
 env:
   APP_ENV: "production"
-  API_KEY: "abc123"
 
-# Optional shared Rhai script file to define reusable functions
+# Rhai functions shared by every lane.
 script: |-
   fn greet(name) {
       print("Hello from shared function, " + name + "!");
   }
 
-# Define multiple lanes
 lanes:
   build:
     before:
       - echo "Setting up build environment"
-    script: |
-      greet("Tester");
     steps:
       - run: "cargo build --release"
+    script: |
+      greet("Tester");
     after:
       - echo "Build completed"
 
@@ -29,15 +33,18 @@ lanes:
 
   deploy:
     before:
-      - echo "Deploying to server"
+      - echo "Deploying to ${target}"
     steps:
       - run: "echo Deploying ${target}"
     script: |
+      // Note: `script` runs after `steps`, so anything a step needs must come
+      // from a parameter rather than from the script. Merging both into one
+      // ordered list is planned for M1 (docs/plan/03-config-schema.md).
       let target = param("target");
       if target == env("APP_ENV") {
-        let result = run("echo Deploying to production server");
+        run("echo Deploying to production server");
       } else {
-        let result = run("echo Deploying to staging server");
+        run("echo Deploying to staging server");
       }
     after:
       - echo "Deploy done"
