@@ -1,12 +1,13 @@
 # shlane.yaml — example configuration
 #
-# Run it from this directory:
-#   shlane run build
+#   shlane list
+#   shlane validate
 #   shlane run deploy target=production
+version: 1
 
 # Environment variables handed to every command in every lane.
-# Keep secrets out of this file — read them from the environment instead:
-#   API_KEY: ${API_KEY}   <- planned for M2, see docs/plan/10-secrets-and-env.md
+# Keep secrets out of this file — read them from the environment instead
+# (env_files and secret masking arrive in M2, docs/plan/10-secrets-and-env.md).
 env:
   APP_ENV: "production"
 
@@ -16,35 +17,72 @@ script: |-
       print("Hello from shared function, " + name + "!");
   }
 
+# Runs before every lane, and after one succeeds.
+before_all:
+  - echo "shlane ${shlane.version} starting lane ${shlane.lane}"
+after_all:
+  - echo "all done"
+
+# Runs when a lane fails.
+error:
+  - echo "something went wrong"
+
 lanes:
   build:
+    description: "Build a release binary"
     before:
       - echo "Setting up build environment"
     steps:
       - run: "cargo build --release"
+        name: compile
+        timeout: 10m
     script: |
       greet("Tester");
     after:
       - echo "Build completed"
 
   test:
+    description: "Run the test suite"
     steps:
       - run: "cargo test"
+        name: unit tests
 
   deploy:
-    before:
-      - echo "Deploying to ${target}"
+    description: "Deploy to a target environment"
+    params:
+      target:
+        type: string
+        required: true
+        values: [staging, production]
+        description: "Where to deploy"
+      notes:
+        type: string
+        default: "no notes"
     steps:
-      - run: "echo Deploying ${target}"
-    script: |
-      // Note: `script` runs after `steps`, so anything a step needs must come
-      // from a parameter rather than from the script. Merging both into one
-      // ordered list is planned for M1 (docs/plan/03-config-schema.md).
-      let target = param("target");
-      if target == env("APP_ENV") {
-        run("echo Deploying to production server");
-      } else {
-        run("echo Deploying to staging server");
-      }
+      - name: announce
+        run: "echo \"Deploying ${target} (${notes})\""
+
+      - name: production only
+        run: "echo Deploying to production server"
+        if: param("target") == "production"
+
+      - name: staging only
+        run: "echo Deploying to staging server"
+        if: param("target") != "production"
+
+      - lane: notify
+        with:
+          channel: "#releases-${target}"
+
     after:
       - echo "Deploy done"
+
+  notify:
+    description: "Post a release note (called by other lanes)"
+    private: true
+    params:
+      channel:
+        type: string
+        required: true
+    steps:
+      - run: "echo Posting to ${channel}"

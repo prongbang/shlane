@@ -15,6 +15,8 @@ pub mod exit_code {
     pub const CONFIG_INVALID: i32 = 2;
     /// The config file or the requested lane does not exist.
     pub const NOT_FOUND: i32 = 3;
+    /// A parameter was missing, of the wrong type, or not an allowed value.
+    pub const PARAMS_INVALID: i32 = 4;
     /// A tool shlane needs is not installed.
     pub const TOOL_MISSING: i32 = 5;
 }
@@ -51,6 +53,12 @@ pub enum ShlaneError {
         command: String,
         code: Option<i32>,
     },
+    StepTimedOut {
+        lane: String,
+        step: String,
+        seconds: u64,
+        command: String,
+    },
     ShellUnavailable {
         shell: String,
         source: io::Error,
@@ -59,6 +67,19 @@ pub enum ShlaneError {
         lane: String,
         phase: &'static str,
         message: String,
+    },
+    ParamInvalid {
+        lane: String,
+        param: String,
+        message: String,
+    },
+    LanePrivate {
+        name: String,
+        available: Vec<String>,
+    },
+    ConfigProblems {
+        path: PathBuf,
+        problems: Vec<String>,
     },
 }
 
@@ -72,7 +93,12 @@ impl ShlaneError {
             | Self::UndefinedVariable { .. }
             | Self::UnterminatedVariable { .. } => exit_code::CONFIG_INVALID,
             Self::ShellUnavailable { .. } => exit_code::TOOL_MISSING,
-            Self::StepFailed { .. } | Self::Script { .. } => exit_code::LANE_FAILED,
+            Self::StepFailed { .. } | Self::Script { .. } | Self::StepTimedOut { .. } => {
+                exit_code::LANE_FAILED
+            }
+            Self::ParamInvalid { .. } => exit_code::PARAMS_INVALID,
+            Self::ConfigProblems { .. } => exit_code::CONFIG_INVALID,
+            Self::LanePrivate { .. } => exit_code::NOT_FOUND,
         }
     }
 }
@@ -143,6 +169,40 @@ impl fmt::Display for ShlaneError {
                 phase,
                 message,
             } => write!(f, "lane '{lane}': {phase} script failed: {message}"),
+            Self::StepTimedOut {
+                lane,
+                step,
+                seconds,
+                command,
+            } => write!(
+                f,
+                "lane '{lane}': step '{step}' was still running after {seconds}s and was stopped\n  command: {command}"
+            ),
+            Self::ParamInvalid {
+                lane,
+                param,
+                message,
+            } => write!(
+                f,
+                "lane '{lane}': parameter '{param}' {message}\n  hint: pass it as {param}=<value>"
+            ),
+            Self::LanePrivate { name, available } => {
+                write!(f, "lane '{name}' is private and can only be called from another lane")?;
+                if !available.is_empty() {
+                    write!(f, "\n  lanes you can run:")?;
+                    for lane in available {
+                        write!(f, "\n    - {lane}")?;
+                    }
+                }
+                Ok(())
+            }
+            Self::ConfigProblems { path, problems } => {
+                write!(f, "{} has {} problem(s):", path.display(), problems.len())?;
+                for problem in problems {
+                    write!(f, "\n  - {problem}")?;
+                }
+                Ok(())
+            }
         }
     }
 }

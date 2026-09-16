@@ -13,13 +13,31 @@ use crate::error::{Result, ShlaneError};
 use std::collections::BTreeMap;
 
 /// Everything a `${...}` reference may resolve against.
+///
+/// A bare `${x}` looks in parameters then environment, as in v0.1.0. The
+/// namespaced forms say exactly where to look: `${params.x}`, `${env.X}` and
+/// `${shlane.lane}`.
 pub struct Vars<'a> {
     pub params: &'a BTreeMap<String, String>,
     pub env: &'a BTreeMap<String, String>,
+    pub meta: &'a BTreeMap<String, String>,
 }
 
 impl Vars<'_> {
     fn get(&self, name: &str) -> Option<&String> {
+        if let Some(rest) = name.strip_prefix("params.") {
+            return self.params.get(rest);
+        }
+        if let Some(rest) = name.strip_prefix("env.") {
+            return self.env.get(rest);
+        }
+        if let Some(rest) = name.strip_prefix("shlane.") {
+            return self.meta.get(rest);
+        }
+        if name.starts_with("steps.") {
+            // Step outputs arrive in M2 (docs/plan/05-scripting-rhai.md).
+            return None;
+        }
         self.params.get(name).or_else(|| self.env.get(name))
     }
 }
@@ -64,6 +82,48 @@ fn quote_for(value: &str, quoting: Quoting) -> String {
             out
         }
     }
+}
+
+/// Substitute without any shell quoting.
+///
+/// For values that never reach a shell: `env:` entries, `workdir:` and the
+/// `with:` map of a `lane:` step are handed to the process directly.
+pub fn interpolate_plain(input: &str, vars: &Vars<'_>) -> Result<String> {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+
+    while i < input.len() {
+        if bytes[i] == b'$' && input[i..].starts_with("$${") {
+            out.push_str("${");
+            i += 3;
+            continue;
+        }
+        if bytes[i] == b'$' && input[i..].starts_with("${") {
+            let rest = &input[i + 2..];
+            let Some(end) = rest.find('}') else {
+                return Err(ShlaneError::UnterminatedVariable {
+                    source_text: input.to_string(),
+                });
+            };
+            let reference = &rest[..end];
+            let name = reference.strip_suffix(":raw").unwrap_or(reference);
+            let value = vars
+                .get(name)
+                .ok_or_else(|| ShlaneError::UndefinedVariable {
+                    name: name.to_string(),
+                    source_text: input.to_string(),
+                })?;
+            out.push_str(value);
+            i += 2 + end + 1;
+            continue;
+        }
+        let ch = input[i..].chars().next().unwrap_or_default();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+
+    Ok(out)
 }
 
 pub fn interpolate(input: &str, vars: &Vars<'_>) -> Result<String> {
@@ -146,15 +206,49 @@ mod tests {
     }
 
     fn render(input: &str, params: &[(&str, &str)], env: &[(&str, &str)]) -> Result<String> {
+        render_with(input, params, env, &[])
+    }
+
+    fn render_with(
+        input: &str,
+        params: &[(&str, &str)],
+        env: &[(&str, &str)],
+        meta: &[(&str, &str)],
+    ) -> Result<String> {
         let params = map(params);
         let env = map(env);
+        let meta = map(meta);
         interpolate(
             input,
             &Vars {
                 params: &params,
                 env: &env,
+                meta: &meta,
             },
         )
+    }
+
+    #[test]
+    fn namespaces_select_where_to_look() {
+        let out =
+            render("${params.x}/${env.x}", &[("x", "p")], &[("x", "e")]).expect("should render");
+        assert_eq!(out, "p/e");
+    }
+
+    #[test]
+    fn a_namespaced_reference_does_not_fall_back() {
+        let err = render("${params.x}", &[], &[("x", "e")]).expect_err("should fail");
+        assert!(
+            matches!(err, ShlaneError::UndefinedVariable { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn shlane_metadata_is_available() {
+        let out =
+            render_with("${shlane.lane}", &[], &[], &[("lane", "beta")]).expect("should render");
+        assert_eq!(out, "beta");
     }
 
     #[test]

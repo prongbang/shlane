@@ -2,7 +2,7 @@
 
 ลำดับการลงมือจริง แต่ละ milestone ต้อง **ปล่อยของที่ใช้ได้** ไม่ใช่แค่ refactor ค้าง
 
-## M0 — ฐานราก (จำเป็นก่อนทุกอย่าง)
+## M0 — ฐานราก (จำเป็นก่อนทุกอย่าง) ✅ เสร็จแล้ว
 
 | งาน | เอกสาร |
 |---|---|
@@ -15,7 +15,7 @@
 
 **เสร็จเมื่อ:** พฤติกรรมเดิมทุกอย่างยังทำงาน มี test ครอบ, CI เขียว, error ทุกตัวอ่านรู้เรื่อง
 
-## M1 — Config และ CLI v1
+## M1 — Config และ CLI v1 ✅ เสร็จแล้ว
 
 - schema v1 ตาม [03](03-config-schema.md): `version`, `params` แบบมี type/required/default, `description`, `private`, `platform`, `if`, `id`, `workdir`, `timeout`, `retry`, `continue_on_error`
 - step แบบ `lane:` (เรียก lane อื่น) และ `error` hook
@@ -24,6 +24,9 @@
 - exit codes ตาม [04](04-cli-ux.md), ตารางสรุปตอนจบ, `--dry-run`
 
 **เสร็จเมื่อ:** เขียน pipeline จริงด้วย `run:` ล้วนๆ แล้วใช้งานแทน shell script ได้
+
+> ยังเหลือจาก M1: การจัดการ Ctrl-C (ต้องมี signal handler), `--json`, `--verbose/-q` และสี
+> — ย้ายไปรวมกับงาน logging ใน M2
 
 ## M2 — Runtime และ scripting
 

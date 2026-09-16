@@ -18,6 +18,22 @@ pub fn eval(engine: &Engine, scope: &mut Scope<'_>, source: &str) -> Result<(), 
         .map_err(|err| err.to_string())
 }
 
+/// Evaluate a `if:` condition.
+///
+/// Conditions are Rhai expressions rather than `${...}` templates: shell
+/// quoting rules do not apply inside Rhai, so `param("x") == "y"` is both
+/// unambiguous and impossible to mis-quote.
+pub fn condition(engine: &Engine, scope: &mut Scope<'_>, source: &str) -> Result<bool, String> {
+    engine
+        .eval_expression_with_scope::<bool>(scope, source.trim())
+        .map_err(|err| match err.to_string() {
+            message if message.contains("Output type incorrect") => {
+                format!("`if` must evaluate to true or false: {message}")
+            }
+            message => message,
+        })
+}
+
 /// Evaluate the config's shared script and publish its functions to every lane.
 ///
 /// Running the source is not enough: Rhai keeps function definitions in the

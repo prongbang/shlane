@@ -3,20 +3,64 @@
 use super::model::Config;
 use crate::error::{Result, ShlaneError};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_FILENAME: &str = "shlane.yaml";
 
-/// Load the config from `dir`.
+/// Candidate file names, in the order they are tried.
+const FILENAMES: [&str; 2] = ["shlane.yaml", "shlane.yml"];
+
+/// A config file and the directory its relative paths resolve against.
+pub struct Discovered {
+    pub config: Config,
+    pub path: PathBuf,
+    pub root: PathBuf,
+}
+
+/// Find a config by walking up from `dir`, so shlane can be run from any
+/// subdirectory of a project and behave the same.
 ///
-/// Searching parent directories is planned for M1
-/// (`docs/plan/03-config-schema.md`); today only `dir` is consulted.
-pub fn load_from_dir(dir: &Path) -> Result<Config> {
-    let path = dir.join(DEFAULT_FILENAME);
-    if !path.is_file() {
-        return Err(ShlaneError::ConfigNotFound { path });
+/// `$SHLANE_CONFIG` overrides the search.
+pub fn discover(dir: &Path) -> Result<Discovered> {
+    if let Some(from_env) = std::env::var_os("SHLANE_CONFIG") {
+        let path = PathBuf::from(from_env);
+        return open(&path);
     }
-    load_file(&path)
+
+    let mut current = Some(dir);
+    while let Some(directory) = current {
+        for filename in FILENAMES {
+            let candidate = directory.join(filename);
+            if candidate.is_file() {
+                return open(&candidate);
+            }
+        }
+        current = directory.parent();
+    }
+
+    Err(ShlaneError::ConfigNotFound {
+        path: dir.join(DEFAULT_FILENAME),
+    })
+}
+
+/// Load one specific config file.
+pub fn open(path: &Path) -> Result<Discovered> {
+    if !path.is_file() {
+        return Err(ShlaneError::ConfigNotFound {
+            path: path.to_path_buf(),
+        });
+    }
+    let config = load_file(path)?;
+    let root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    Ok(Discovered {
+        config,
+        path: path.to_path_buf(),
+        root,
+    })
 }
 
 pub fn load_file(path: &Path) -> Result<Config> {

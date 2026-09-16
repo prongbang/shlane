@@ -1,16 +1,31 @@
 //! Command line surface.
 
-use crate::config;
-use crate::error::Result;
+mod init;
+mod list;
+
+use crate::config::loader::{self, Discovered};
+use crate::config::validate;
+use crate::error::{Result, ShlaneError};
 use crate::runtime;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use std::env;
+use std::io;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "shlane")]
 #[command(version)]
 #[command(about = "A fastlane-like tool written in Rust", long_about = None)]
 pub struct Cli {
+    /// Use this config file instead of searching for one
+    #[arg(short = 'f', long, global = true, value_name = "PATH")]
+    file: Option<PathBuf>,
+
+    /// Work from this directory
+    #[arg(short = 'C', long, global = true, value_name = "DIR")]
+    cwd: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -22,18 +37,97 @@ enum Commands {
         #[arg(help = "Name of the lane to execute")]
         name: String,
 
-        #[arg(help = "Key-value parameters", trailing_var_arg = true)]
+        /// Key-value parameters, e.g. target=production
+        ///
+        /// Not a trailing_var_arg: that swallowed flags written after the lane
+        /// name, so `shlane run beta target=x --dry-run` silently ignored the
+        /// flag. Parameters are always `key=value`, so they never look like one.
+        #[arg(value_name = "KEY=VALUE")]
         params: Vec<String>,
+
+        /// Print what would run without running it
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// List the lanes in the config file
+    #[command(alias = "lanes")]
+    List,
+
+    /// Check the config file without running anything
+    Validate,
+
+    /// Write a starter config file for this project
+    Init {
+        /// Overwrite an existing config file
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Print a shell completion script
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 
 pub fn dispatch(cli: Cli) -> Result<()> {
+    let base = match &cli.cwd {
+        Some(dir) => dir.clone(),
+        None => env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+    let file = cli.file.clone();
+
     match cli.command {
-        Commands::Run { name, params } => {
-            let workdir = env::current_dir().unwrap_or_else(|_| ".".into());
-            let config = config::load_from_dir(&workdir)?;
+        Commands::Run {
+            name,
+            params,
+            dry_run,
+        } => {
+            let found = load(file.as_deref(), &base)?;
             let params = runtime::parse_params(params);
-            runtime::run_lane(&config, &name, params, &workdir)
+            runtime::run_lane(
+                &found.config,
+                &found.root,
+                &name,
+                params,
+                runtime::Options { dry_run },
+            )
         }
+        Commands::List => {
+            let found = load(file.as_deref(), &base)?;
+            list::print(&found.config, &found.path);
+            Ok(())
+        }
+        Commands::Validate => {
+            let found = load(file.as_deref(), &base)?;
+            let problems = validate::check(&found.config);
+            if problems.is_empty() {
+                let lanes = found.config.lanes.len();
+                println!("{} is valid ({lanes} lane(s))", found.path.display());
+                return Ok(());
+            }
+            Err(ShlaneError::ConfigProblems {
+                path: found.path,
+                problems,
+            })
+        }
+        Commands::Init { force } => init::write(&base, force),
+        Commands::Completions { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "shlane",
+                &mut io::stdout().lock(),
+            );
+            Ok(())
+        }
+    }
+}
+
+fn load(file: Option<&std::path::Path>, base: &std::path::Path) -> Result<Discovered> {
+    match file {
+        Some(path) => loader::open(path),
+        None => loader::discover(base),
     }
 }

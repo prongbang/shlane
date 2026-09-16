@@ -5,9 +5,10 @@ A fastlane-like automation tool written in Rust, with [Rhai](https://rhai.rs) sc
 Define your build, test and release steps as *lanes* in a YAML file, then run them
 with a single static binary — no Ruby, no `bundle install`, no gem conflicts.
 
-> **Status: early.** The basics (lanes, shell steps, parameters, Rhai scripting) work
-> today. The road to actually replacing fastlane — actions, code signing, store
-> uploads, plugins — is written up in [`docs/plan/`](docs/plan/README.md).
+> **Status: early.** Lanes, typed parameters, conditions, retries, timeouts, nested
+> lanes and Rhai scripting work today. The road to actually replacing fastlane —
+> actions, code signing, store uploads, plugins — is written up in
+> [`docs/plan/`](docs/plan/README.md).
 
 ## Install
 
@@ -46,22 +47,95 @@ shlane run test
 shlane run deploy target=staging
 ```
 
+## Commands
+
+| Command | What it does |
+|---|---|
+| `shlane run <lane> [key=value ...]` | Run a lane |
+| `shlane list` | Show every lane, its description and its parameters |
+| `shlane validate` | Check the config without running anything |
+| `shlane init` | Write a starter config, guessing the project type |
+| `shlane completions <shell>` | Print a shell completion script |
+
+| Flag | What it does |
+|---|---|
+| `-f, --file <PATH>` | Use this config instead of searching for one |
+| `-C, --cwd <DIR>` | Work from this directory |
+| `--dry-run` | Print what would run, without running it |
+
+`shlane` looks for `shlane.yaml` (or `shlane.yml`) in the current directory and then
+each parent, so it can be run from anywhere inside a project. `$SHLANE_CONFIG`
+overrides the search. Steps run from the directory holding the config, so a lane
+behaves the same wherever it is started.
+
 ## Configuration
+
+### Top level
 
 | Key | Meaning |
 |---|---|
+| `version` | Schema version. `1` today |
+| `min_shlane` | Minimum shlane version this config needs |
 | `env` | Environment variables handed to every command in every lane |
 | `script` | Rhai source evaluated once before a lane runs — a place for shared functions |
-| `lanes.<name>.before` | Shell commands run before the lane's steps |
-| `lanes.<name>.steps` | The lane's shell commands, each as `- run: <command>` |
-| `lanes.<name>.script` | Rhai source run after the steps |
-| `lanes.<name>.after` | Shell commands run once the lane has succeeded |
+| `before_all` / `after_all` | Steps run around the lane |
+| `error` | Steps run when a lane fails |
+| `lanes` | The lanes themselves |
 
-The phases always run in this order: `before` → `steps` → `script` → `after`.
-A single ordered `steps:` list that can mix commands, scripts and actions is planned
+### A lane
+
+| Key | Meaning |
+|---|---|
+| `description` | One line, shown by `shlane list` |
+| `platform` | Free-form grouping, e.g. `ios` |
+| `private` | When true, the lane can only be reached from another lane |
+| `params` | Declared parameters, checked before the lane runs |
+| `before` / `steps` / `after` | The lane's steps |
+| `script` | Rhai source run after the steps |
+
+The phases run in this order: `before` → `steps` → `script` → `after`.
+A single ordered `steps:` list that can also mix in actions is planned
 (see [`docs/plan/03-config-schema.md`](docs/plan/03-config-schema.md)).
 
-`shlane` reads `shlane.yaml` from the directory you run it in.
+### A step
+
+A step is one of `run:` (a shell command), `script:` (Rhai) or `lane:` (another lane).
+`action:` parses but is not implemented yet — it is M3 on the roadmap.
+
+```yaml
+steps:
+  - name: upload            # shown in logs and the summary
+    run: ./scripts/upload.sh ${target}
+    if: param("target") == "production"   # a Rhai expression
+    workdir: ./ios          # relative to the config file
+    env:
+      EXTRA: value
+    timeout: 20m            # 30, 30s, 20m, 1h
+    retry: 2                # extra attempts after the first
+    continue_on_error: false
+
+  - lane: notify            # call another lane
+    with:
+      channel: "#releases"
+```
+
+A bare string is still a `run:` step, so `before: [echo hi]` works as before.
+
+### Parameters
+
+```yaml
+params:
+  target:
+    type: string            # string | int | bool
+    required: true
+    values: [staging, production]
+    description: "Where to deploy"
+  notes:
+    default: "no notes"
+```
+
+A missing required parameter, a value outside `values`, or one of the wrong type stops
+the lane before anything runs, with exit code `4`.
 
 ### Parameters
 
@@ -74,6 +148,9 @@ shlane run deploy target=staging notes="first build"
 Reference it as `${target}` in any command, or as `param("target")` in a script.
 A name that resolves to neither a parameter nor an `env` entry is an error, so a typo
 fails the lane instead of silently passing `${targt}` to your shell.
+
+A bare `${x}` looks in parameters, then in `env`. The namespaced forms say exactly
+where to look: `${params.x}`, `${env.X}`, and `${shlane.lane}` / `${shlane.version}`.
 
 **Values are shell-quoted.** `${target}` always expands to exactly one shell word, so a
 value containing `;`, spaces or backticks cannot inject commands. Quoting follows the
@@ -126,8 +203,9 @@ lanes — is planned in [`docs/plan/05-scripting-rhai.md`](docs/plan/05-scriptin
 |---|---|
 | `0` | Success |
 | `1` | The lane failed — a step returned non-zero, or a script errored |
-| `2` | The config could not be parsed, or a `${...}` reference could not be resolved |
-| `3` | No config file, or no such lane |
+| `2` | The config could not be parsed or did not validate, or a `${...}` reference could not be resolved |
+| `3` | No config file, or no such lane (or the lane is private) |
+| `4` | A parameter was missing, of the wrong type, or not an allowed value |
 | `5` | A tool shlane needs is not installed |
 
 ## Development

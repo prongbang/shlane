@@ -62,7 +62,7 @@ lanes:
         action: testflight
         with:
           ipa: ${steps.build.ipa}            # ใหม่ — อ้างผลของ step ก่อนหน้า
-        if: ${params.target} == "production"  # ใหม่ — เงื่อนไข
+        if: param("target") == "production"   # ใหม่ — เงื่อนไข (Rhai expression)
         retry: 2                             # ใหม่
         timeout: 20m                         # ใหม่
 
@@ -107,6 +107,10 @@ field ร่วมของทุก step: `name`, `id`, `if`, `env`, `workdir`,
 | `${env.X}` | environment |
 | `${steps.<id>.<field>}` | ผลของ step ก่อนหน้า (`stdout`, `code`, หรือ output เฉพาะของ action) |
 | `${shlane.lane}`, `${shlane.version}` | ข้อมูลของ runtime |
+
+> **หมายเหตุจากการ implement (M1):** `if:` ใช้ Rhai expression (`param("x") == "y"`)
+> ไม่ใช่ `${...}` เพราะกฎการ quote ของ shell ใช้กับ Rhai ไม่ได้ การปล่อยให้ `${...}`
+> แทนค่าลงไปใน expression จะทำให้ quote ผิดโดยไม่มีใครรู้
 
 กฎสำคัญ 2 ข้อที่ต่างจากปัจจุบัน:
 1. **อ้างตัวแปรที่ไม่มีจริง = error** ไม่ใช่ปล่อย `${x}` ดิบไปให้ shell (`src/main.rs:69`)

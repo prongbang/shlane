@@ -5,39 +5,35 @@
 //! process (and is `unsafe` from Rust 2024 on); see
 //! `docs/plan/10-secrets-and-env.md`.
 
-use super::interpolate::Vars;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::rc::Rc;
 
-pub struct Context {
+/// What the lane currently being executed can see.
+///
+/// Shared with the Rhai builtins so that `param()` and `env()` follow nested
+/// `lane:` calls instead of being frozen at engine construction.
+#[derive(Debug, Default)]
+pub struct Frame {
     pub lane: String,
     pub params: BTreeMap<String, String>,
     pub env: BTreeMap<String, String>,
     pub workdir: PathBuf,
+    pub dry_run: bool,
 }
 
-impl Context {
-    pub fn new(
-        lane: impl Into<String>,
-        params: BTreeMap<String, String>,
-        env: BTreeMap<String, String>,
-        workdir: impl AsRef<Path>,
-    ) -> Self {
-        Self {
-            lane: lane.into(),
-            params,
-            env,
-            workdir: workdir.as_ref().to_path_buf(),
-        }
-    }
-
-    pub fn vars(&self) -> Vars<'_> {
-        Vars {
-            params: &self.params,
-            env: &self.env,
-        }
+impl Frame {
+    /// Values available as `${shlane.*}`.
+    pub fn meta(&self) -> BTreeMap<String, String> {
+        BTreeMap::from([
+            ("lane".to_string(), self.lane.clone()),
+            ("version".to_string(), env!("CARGO_PKG_VERSION").to_string()),
+        ])
     }
 }
+
+pub type SharedFrame = Rc<RefCell<Frame>>;
 
 /// Parse `key=value` arguments from the command line.
 ///
@@ -77,5 +73,16 @@ mod tests {
     fn ignores_arguments_without_an_equals() {
         let params = parse_params(["standalone"]);
         assert!(params.is_empty());
+    }
+
+    #[test]
+    fn meta_exposes_the_lane_and_version() {
+        let frame = Frame {
+            lane: "beta".to_string(),
+            ..Frame::default()
+        };
+        let meta = frame.meta();
+        assert_eq!(meta.get("lane").map(String::as_str), Some("beta"));
+        assert!(meta.contains_key("version"));
     }
 }

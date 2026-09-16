@@ -1,7 +1,7 @@
 //! Rhai engine construction.
 
 use super::builtins;
-use crate::runtime::Context;
+use crate::runtime::context::SharedFrame;
 use rhai::Engine;
 
 /// Bounds that stop a runaway script from hanging a CI job. Generous enough
@@ -10,7 +10,7 @@ const MAX_OPERATIONS: u64 = 10_000_000;
 const MAX_STRING_SIZE: usize = 10 * 1024 * 1024;
 const MAX_ARRAY_SIZE: usize = 100_000;
 
-pub fn build(ctx: &Context) -> Engine {
+pub fn build(frame: &SharedFrame) -> Engine {
     let mut engine = Engine::new();
     engine.set_max_operations(MAX_OPERATIONS);
     engine.set_max_string_size(MAX_STRING_SIZE);
@@ -26,6 +26,6 @@ pub fn build(ctx: &Context) -> Engine {
         None => eprintln!("{pos:?}: {text}"),
     });
 
-    builtins::register(&mut engine, ctx);
+    builtins::register(&mut engine, frame);
     engine
 }
