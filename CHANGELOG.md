@@ -20,6 +20,11 @@ built on something solid.
   a lane report success after its script had already errored.
 - **Scripts that end in an expression now work.** `run("...")` as a script's last
   statement failed with "Output type incorrect", even though the command had run.
+- **Shared `script:` functions are callable from lanes.** Rhai keeps function
+  definitions in the compiled AST rather than the scope, so every call to a shared
+  function failed with "Function not found" -- including `greet()` in
+  `example/shlane.yaml`. They are now lifted into a module registered on the engine,
+  with the shared script's top-level statements still running exactly once.
 - **`print()` works.** Registering a function named `print` broke Rhai's
   value-to-string conversion, so *every* lane script failed — including the one in
   `example/shlane.yaml`. Printing now goes through the engine's print handler.
@@ -29,6 +34,9 @@ built on something solid.
 - **Unresolvable `${...}` references are an error** instead of being passed through to
   the shell as literal text.
 - **A failed step no longer runs the lane's `after` hooks.**
+- **Quoting respects the surrounding context.** A `${...}` inside `"..."` or `'...'` is
+  escaped in place instead of being wrapped in a second layer of quotes, which would
+  otherwise put literal quote characters into the command's output.
 
 ### Changed
 
@@ -50,7 +58,7 @@ built on something solid.
 
 - `README.md`, `LICENSE` (Apache-2.0) and this changelog. `Cargo.toml` referenced a
   README that did not exist, which would have failed `cargo publish`.
-- 35 tests: unit tests for interpolation, config parsing and parameter handling, plus
+- 42 tests: unit tests for interpolation, config parsing and parameter handling, plus
   end-to-end tests that run the binary against real config files.
 - CI running fmt, clippy (`-D warnings`) and the test suite on Linux and macOS.
 - `docs/plan/`: the plan for replacing fastlane.

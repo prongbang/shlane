@@ -323,3 +323,50 @@ fn a_script_ending_in_an_expression_succeeds() {
         .assert_stdout_contains("from-script")
         .assert_stdout_contains("completed successfully");
 }
+
+#[test]
+fn lane_scripts_can_call_shared_functions() {
+    let sandbox = Sandbox::new(
+        r#"
+script: |-
+  fn greet(name) {
+      print("hello " + name);
+  }
+lanes:
+  show:
+    script: |
+      greet("world");
+"#,
+    );
+
+    sandbox
+        .run(&["run", "show"])
+        .assert_code(0)
+        .assert_stdout_contains("hello world")
+        .assert_stdout_contains("completed successfully");
+}
+
+#[test]
+fn shared_top_level_statements_run_exactly_once() {
+    let sandbox = Sandbox::new(
+        r#"
+script: |-
+  print("loaded-shared");
+  fn noop() {}
+lanes:
+  show:
+    script: |
+      noop();
+      print("lane-ran");
+"#,
+    );
+
+    let run = sandbox.run(&["run", "show"]);
+    run.assert_code(0).assert_stdout_contains("lane-ran");
+    assert_eq!(
+        run.stdout.matches("loaded-shared").count(),
+        1,
+        "the shared script's statements ran more than once:\n{}",
+        run.stdout
+    );
+}

@@ -28,15 +28,17 @@ pub fn run_lane(
         })?;
 
     let ctx = Context::new(lane_name, params, config.env.clone(), workdir);
-    let engine = script::engine::build(&ctx);
+    let mut engine = script::engine::build(&ctx);
     let mut scope = rhai::Scope::new();
 
     if let Some(shared) = &config.script {
         println!("Loading shared script...");
-        script::eval(&engine, &mut scope, shared).map_err(|message| ShlaneError::Script {
-            lane: ctx.lane.clone(),
-            phase: "shared",
-            message,
+        script::load_shared(&mut engine, &mut scope, shared).map_err(|message| {
+            ShlaneError::Script {
+                lane: ctx.lane.clone(),
+                phase: "shared",
+                message,
+            }
         })?;
     }
 

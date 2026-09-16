@@ -24,24 +24,53 @@ impl Vars<'_> {
     }
 }
 
-/// Quote a value so a POSIX shell treats it as a single literal word.
-pub fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
+/// Where in the surrounding command a `${...}` reference appears.
+///
+/// Quoting has to respect this: wrapping a value in single quotes is right in
+/// bare text, but inside `"..."` it would put literal quote characters into the
+/// command's output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quoting {
+    Bare,
+    Single,
+    Double,
+}
+
+/// Quote a value so the shell treats it as literal text in `quoting` context.
+fn quote_for(value: &str, quoting: Quoting) -> String {
+    match quoting {
+        Quoting::Bare => {
+            if value.is_empty() {
+                return "''".to_string();
+            }
+            if value.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@')
+            }) {
+                return value.to_string();
+            }
+            format!("'{}'", value.replace('\'', r"'\''"))
+        }
+        // Close the string, add a quoted literal quote, reopen it.
+        Quoting::Single => value.replace('\'', r"'\''"),
+        // Inside double quotes the shell still acts on these four.
+        Quoting::Double => {
+            let mut out = String::with_capacity(value.len());
+            for c in value.chars() {
+                if matches!(c, '\\' | '"' | '$' | '`') {
+                    out.push('\\');
+                }
+                out.push(c);
+            }
+            out
+        }
     }
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | '@'))
-    {
-        return value.to_string();
-    }
-    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 pub fn interpolate(input: &str, vars: &Vars<'_>) -> Result<String> {
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0;
+    let mut quoting = Quoting::Bare;
 
     while i < input.len() {
         // `$${` is an escape for a literal `${`.
@@ -74,13 +103,30 @@ pub fn interpolate(input: &str, vars: &Vars<'_>) -> Result<String> {
             if raw {
                 out.push_str(value);
             } else {
-                out.push_str(&shell_quote(value));
+                out.push_str(&quote_for(value, quoting));
             }
             i += 2 + end + 1;
             continue;
         }
 
         let ch = input[i..].chars().next().unwrap_or_default();
+        match ch {
+            // A backslash escapes the next character, except inside '...'.
+            '\\' if quoting != Quoting::Single => {
+                out.push(ch);
+                i += ch.len_utf8();
+                if let Some(next) = input[i..].chars().next() {
+                    out.push(next);
+                    i += next.len_utf8();
+                }
+                continue;
+            }
+            '\'' if quoting == Quoting::Bare => quoting = Quoting::Single,
+            '\'' if quoting == Quoting::Single => quoting = Quoting::Bare,
+            '"' if quoting == Quoting::Bare => quoting = Quoting::Double,
+            '"' if quoting == Quoting::Double => quoting = Quoting::Bare,
+            _ => {}
+        }
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -146,6 +192,38 @@ mod tests {
     fn empty_values_stay_one_argument() {
         let out = render("echo ${x}", &[("x", "")], &[]).expect("should render");
         assert_eq!(out, "echo ''");
+    }
+
+    #[test]
+    fn inside_double_quotes_the_value_is_escaped_not_wrapped() {
+        let out =
+            render(r#"echo "to ${x}""#, &[("x", "staging; rm -rf /")], &[]).expect("should render");
+        assert_eq!(out, r#"echo "to staging; rm -rf /""#);
+    }
+
+    #[test]
+    fn inside_double_quotes_shell_metacharacters_are_escaped() {
+        let out =
+            render(r#"echo "${x}""#, &[("x", "$(whoami) `id` \"q\"")], &[]).expect("should render");
+        assert_eq!(out, r#"echo "\$(whoami) \`id\` \"q\"""#);
+    }
+
+    #[test]
+    fn inside_single_quotes_the_value_closes_and_reopens_the_string() {
+        let out = render("echo 'to ${x}'", &[("x", "it's fine")], &[]).expect("should render");
+        assert_eq!(out, r"echo 'to it'\''s fine'");
+    }
+
+    #[test]
+    fn quote_state_resets_after_a_closed_string() {
+        let out = render(r#"echo "a" ${x}"#, &[("x", "b c")], &[]).expect("should render");
+        assert_eq!(out, r#"echo "a" 'b c'"#);
+    }
+
+    #[test]
+    fn an_escaped_quote_does_not_open_a_string() {
+        let out = render(r#"echo \" ${x}"#, &[("x", "b c")], &[]).expect("should render");
+        assert_eq!(out, r#"echo \" 'b c'"#);
     }
 
     #[test]

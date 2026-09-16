@@ -76,8 +76,10 @@ A name that resolves to neither a parameter nor an `env` entry is an error, so a
 fails the lane instead of silently passing `${targt}` to your shell.
 
 **Values are shell-quoted.** `${target}` always expands to exactly one shell word, so a
-value containing `;`, spaces or backticks cannot inject commands. When you *want* a value
-to expand into several words, ask for it explicitly with `:raw`:
+value containing `;`, spaces or backticks cannot inject commands. Quoting follows the
+surrounding context, so a reference already inside `"..."` or `'...'` is escaped in place
+rather than wrapped in another layer of quotes. When you *want* a value to expand into
+several words, ask for it explicitly with `:raw`:
 
 ```yaml
 steps:
