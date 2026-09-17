@@ -1,23 +1,25 @@
-# 12 — การย้ายจาก fastlane
+# 12 — Migrating from fastlane
 
-คนจะไม่ย้ายถ้าต้องเขียนใหม่ทั้งหมด — เส้นทางการย้ายสำคัญไม่แพ้ตัว feature
+Nobody moves if it means rewriting everything, so the migration path matters as much as
+the features do.
 
-## กลยุทธ์: ย้ายทีละ lane ไม่ใช่ทีเดียวทั้งหมด
+## The strategy: one lane at a time, not all at once
 
-ระหว่างเปลี่ยนผ่าน ให้ทั้งสองอย่างอยู่ร่วมกันได้:
+During the move, both have to be able to live together:
 
 ```yaml
 lanes:
   test:
     steps:
-      - action: test_android        # ย้ายมาแล้ว
+      - action: test_android        # moved over
 
   beta:
     steps:
-      - run: bundle exec fastlane beta   # ยังไม่ได้ย้าย — เรียก fastlane เดิมไปก่อน
+      - run: bundle exec fastlane beta   # not moved yet — call the old fastlane
 ```
 
-ลำดับที่แนะนำ: `test` → `build` → `bump version/changelog` → `distribute` (ยากสุด ย้ายท้ายสุด)
+The order worth suggesting: `test` → `build` → `bump version`/`changelog` →
+`distribute`, which is the hardest and goes last.
 
 ## `shlane migrate`
 
@@ -25,28 +27,32 @@ lanes:
 shlane migrate --fastfile fastlane/Fastfile --out shlane.yaml
 ```
 
-เป็นเครื่องมือ **best-effort** ไม่ใช่ตัวแปลสมบูรณ์ — Fastfile คือ Ruby ที่รันโค้ดอะไรก็ได้
+It is a **best-effort** tool, not a complete translator — a Fastfile is Ruby, and it can
+run anything.
 
-ทำได้:
-- ดึง `lane :name do |options| ... end` เป็น lane
-- ดึง `platform :ios do ... end` เป็น `platform: ios`
-- ดึง `private_lane` เป็น `private: true`
-- ดึง `desc "..."` เป็น `description`
-- แปลง action ที่อยู่ในตารางด้านล่าง พร้อม argument
-- แปลง `sh "..."` เป็น `run:`
-- แปลง `options[:key]` เป็น `${params.key}`
+What it can do:
 
-ทำไม่ได้ (ต้องใส่ `# TODO: ย้ายด้วยมือ` ไว้ให้):
-- เงื่อนไข/ลูป Ruby, การเรียก method ที่ผู้ใช้เขียนเอง
-- `lane_context[SharedValues::X]` ที่ซับซ้อน
-- plugin ที่ไม่มีตัวเทียบ
-- โค้ด Ruby ใน `Fastfile` ที่อยู่นอก lane
+- turn `lane :name do |options| ... end` into a lane
+- turn `platform :ios do ... end` into `platform: ios`
+- turn `private_lane` into `private: true`
+- turn `desc "..."` into `description`
+- convert the actions in the table below, with their arguments
+- turn `sh "..."` into `run:`
+- turn `options[:key]` into `${params.key}`
 
-output ต้องมี **รายงานสรุป**: แปลงได้กี่ lane, กี่ action, อะไรที่ต้องทำเอง
+What it cannot do, and has to leave a `# TODO: move this by hand` for:
 
-## ตารางแปลง action (ย่อ)
+- Ruby conditionals and loops, and calls to methods the user wrote
+- anything complicated built on `lane_context[SharedValues::X]`
+- plugins with no equivalent
+- Ruby in the `Fastfile` that sits outside a lane
 
-| fastlane | shlane | เอกสาร |
+The output has to come with a **summary**: how many lanes and actions were converted, and
+what is left to do by hand.
+
+## The action mapping, abridged
+
+| fastlane | shlane | Document |
 |---|---|---|
 | `sh` | `run:` | [03](03-config-schema.md) |
 | `gym` / `build_app` | `build_ios` | [07](07-actions-ios.md) |
@@ -62,18 +68,21 @@ output ต้องมี **รายงานสรุป**: แปลงได
 | `slack` | `notify_slack` | [06](06-actions-core.md) |
 | `ensure_git_status_clean` | `git_status_clean` | [06](06-actions-core.md) |
 | `setup_ci` | `setup_ci` | [11](11-ci-integration.md) |
-| `Appfile` | `ios:` block | [07](07-actions-ios.md) |
-| `Matchfile` | `codesign:` block | [07](07-actions-ios.md) |
-| `.env` ของ fastlane | `env_files:` | [10](10-secrets-and-env.md) |
+| `Appfile` | an `ios:` block | [07](07-actions-ios.md) |
+| `Matchfile` | a `codesign:` block | [07](07-actions-ios.md) |
+| fastlane's `.env` | `env_files:` | [10](10-secrets-and-env.md) |
 
-ตารางเต็มต้องอยู่ใน `docs/migration.md` และอัปเดตทุกครั้งที่เพิ่ม action
+The full table belongs in `docs/migration.md`, updated every time an action is added.
 
-## เอกสารที่ต้องเขียนคู่กัน
+## The documents that have to come with it
 
-1. **"ย้ายจาก fastlane ใน 15 นาที"** — คู่มือสั้น เน้นโปรเจกต์ทั่วไป
-2. **ตารางเทียบ action แบบเต็ม** — ให้ค้นหาได้ว่า action ที่ใช้อยู่มีตัวแทนไหม
-3. **"อะไรที่ shlane ยังทำไม่ได้"** — ซื่อสัตย์ตั้งแต่แรก ดีกว่าให้คนย้ายมาแล้วติด
+1. **"Move off fastlane in 15 minutes"** — short, aimed at an ordinary project.
+2. **The complete action comparison table**, so somebody can look up whether the action
+   they use has a replacement.
+3. **"What shlane still cannot do"** — being honest up front beats someone moving over
+   and getting stuck.
 
-## ตัวชี้วัด
+## The measure
 
-ถือว่าเส้นทางการย้ายใช้ได้เมื่อ: โปรเจกต์ตัวอย่างที่มี Fastfile ~100 บรรทัด ย้ายเสร็จภายใน 1 ชั่วโมงโดยคนที่ไม่เคยใช้ shlane มาก่อน
+The migration path works when somebody who has never used shlane can move a project with
+a ~100-line Fastfile in under an hour.

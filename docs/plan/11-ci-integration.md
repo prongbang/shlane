@@ -1,20 +1,22 @@
-# 11 — การใช้งานบน CI
+# 11 — Running on CI
 
-จุดขายหลักของ shlane เหนือ fastlane อยู่ตรงนี้: ไม่ต้อง `bundle install`
+This is where shlane's main advantage over fastlane sits: there is no `bundle install`.
 
-## ตรวจจับ CI
+## Detecting CI
 
 ```rhai
-is_ci()        // true เมื่อเจอ CI, GITHUB_ACTIONS, GITLAB_CI, BITRISE_IO, CIRCLECI, JENKINS_URL, BUILDKITE
+is_ci()        // true when CI, GITHUB_ACTIONS, GITLAB_CI, BITRISE_IO, CIRCLECI, JENKINS_URL or BUILDKITE is set
 ci_provider()  // "github" | "gitlab" | "bitrise" | ...
 ```
 
-พฤติกรรมที่เปลี่ยนอัตโนมัติเมื่ออยู่บน CI:
-- ปิด spinner และสี (ยกเว้น provider ที่รองรับ ANSI)
-- `ui_confirm()` ไม่รอ input — ใช้ default หรือ error ตาม flag
-- เปิด `--verbose` โดยปริยายเมื่อ step ล้มเหลว (พิมพ์ log เต็มของ step นั้นซ้ำ)
+What changes by itself on CI:
 
-## `setup_ci` (แทนของ fastlane)
+- the spinner and the colours go, except on providers that handle ANSI
+- `ui_confirm()` does not wait for input — it takes the default, or fails, depending on
+  the flag
+- `--verbose` turns itself on when a step fails, reprinting that step's whole log
+
+## `setup_ci`, in place of fastlane's
 
 ```yaml
 - action: setup_ci
@@ -23,44 +25,48 @@ ci_provider()  // "github" | "gitlab" | "bitrise" | ...
     timeout: 3600
 ```
 
-ทำ: สร้าง temp keychain, unlock, ตั้งเป็น default, และลงทะเบียน cleanup ให้ลบทิ้งตอนจบ **ไม่ว่า lane จะสำเร็จหรือล้มเหลว**
+It creates a temporary keychain, unlocks it, makes it the default, and registers the
+cleanup that deletes it at the end, **whether the lane succeeded or failed**.
 
-## Report
+## Reports
 
-| รูปแบบ | flag | ใช้กับ |
+| Format | Flag | For |
 |---|---|---|
-| JUnit XML | `--report junit:./reports/shlane.xml` | ทุก CI ที่อ่าน test report |
-| JSON | `--report json:./reports/shlane.json` | เครื่องมือภายใน |
-| Markdown summary | `--report md:$GITHUB_STEP_SUMMARY` | GitHub Actions job summary |
+| JUnit XML | `--report junit:./reports/shlane.xml` | any CI that reads a test report |
+| JSON | `--report json:./reports/shlane.json` | in-house tooling |
+| Markdown summary | `--report md:$GITHUB_STEP_SUMMARY` | the GitHub Actions job summary |
 
-## Annotations ของ GitHub Actions
+## GitHub Actions annotations
 
-เมื่อ `ci_provider() == "github"` ให้ปล่อย workflow command:
+When `ci_provider() == "github"`, emit workflow commands:
 
 ```
 ::group::build_ios
-::error file=shlane.yaml,line=42::step 'testflight' ล้มเหลว: invalid API key
+::error file=shlane.yaml,line=42::step 'testflight' failed: invalid API key
 ::endgroup::
 ```
 
-ทำให้ error ไปปรากฏบนไฟล์ในหน้า PR ตรงๆ — สิ่งที่ fastlane ไม่ทำให้
+That puts the error on the file itself in the PR view — something fastlane does not do
+for you.
 
-## GitHub Action wrapper
+## A GitHub Action wrapper
 
-สร้าง repo แยก `prongbang/shlane-action`:
+In its own repository, `prongbang/shlane-action`:
 
 ```yaml
 - uses: prongbang/shlane-action@v1
   with:
-    version: "0.5.0"      # หรือ "latest"
+    version: "0.5.0"      # or "latest"
     lane: beta
     params: "target=production"
 ```
 
-- ดาวน์โหลด binary ตาม platform, ตรวจ checksum, cache ด้วย `@actions/tool-cache`
-- ใช้เวลา setup ~1–2 วินาที เทียบกับ `bundle install` ที่ 30–120 วินาที — **เป็นตัวเลขที่ควรโฆษณา**
+- downloads the binary for the platform, checks the checksum, and caches it with
+  `@actions/tool-cache`
+- setup takes one or two seconds, against 30–120 seconds for `bundle install` — **that
+  is the number worth advertising**
 
-## ตัวอย่าง workflow
+## An example workflow
 
 ```yaml
 jobs:
@@ -83,15 +89,19 @@ jobs:
 
 ## Caching
 
-`shlane` เองไม่ควรทำ cache แต่ควร **บอก CI ได้ว่าอะไรควร cache**:
+`shlane` should not cache anything itself, but it should be able to **tell CI what is
+worth caching**:
 
 ```
 shlane cache-paths --json
 # → ["~/.gradle/caches", "~/Library/Developer/Xcode/DerivedData", ".shlane/plugins"]
 ```
 
-## ข้อกำหนดเรื่องความทนทาน
+## What robustness requires
 
-- ทุก network action ต้อง retry แบบ exponential backoff (CI network ไม่เสถียรเป็นปกติ)
-- มี timeout ต่อ step (ดู [03](03-config-schema.md)) เพื่อไม่ให้ job ค้างจนชน limit ของ CI
-- รับสัญญาณ SIGTERM ที่ CI ส่งตอนใกล้ timeout → รัน `error` hook → ออกอย่างสะอาด
+- every network action retries with exponential backoff, because an unreliable network
+  is normal on CI
+- there is a timeout per step (see [03](03-config-schema.md)), so a job cannot hang until
+  it hits CI's own limit
+- the SIGTERM that CI sends as a timeout approaches is caught, the `error` hook runs, and
+  the exit is clean

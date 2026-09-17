@@ -1,132 +1,144 @@
-# 02 — สถาปัตยกรรม
+# 02 — Architecture
 
-## โครงสร้างโมดูลเป้าหมาย
+## The module layout to aim for
 
-แยก `src/main.rs` (199 บรรทัด) ออกเป็น:
+`src/main.rs` (199 lines) breaks up into:
 
 ```
 src/
-  main.rs              # entry point บางๆ: parse CLI → เรียก app::run() → map error เป็น exit code
+  main.rs              # a thin entry point: parse the CLI, dispatch, map an error to an exit code
   cli/
     mod.rs             # clap definitions
     commands/          # run.rs, list.rs, init.rs, validate.rs, action.rs, plugin.rs, migrate.rs
   config/
     mod.rs
-    model.rs           # struct Config, Lane, Step, Param (serde)
-    loader.rs          # หา + อ่านไฟล์, รองรับ include, merge
-    validate.rs        # ตรวจ schema, lane ที่อ้างไม่มีจริง, วงจร lane ซ้อน
+    model.rs           # Config, Lane, Step, Param (serde)
+    loader.rs          # find and read the file; include and merge
+    validate.rs        # the schema, lanes that do not exist, lanes that call each other in a loop
   runtime/
     mod.rs
-    executor.rs        # ลำดับการรัน lane/step, hooks, error handling
+    executor.rs        # the order lanes and steps run in, hooks, error handling
     context.rs         # LaneContext: params, env, outputs, dry_run, workdir
-    shell.rs           # spawn process, stream output, จับ stdout/stderr, timeout
-    interpolate.rs     # ${var} + escaping
+    shell.rs           # spawn, stream, capture stdout/stderr, timeouts
+    interpolate.rs     # ${var} and escaping
   script/
     mod.rs
-    engine.rs          # ตั้งค่า Rhai engine (limits, modules)
-    builtins.rs        # ลงทะเบียน run/param/env/ui/...
+    engine.rs          # the Rhai engine: limits, modules
+    builtins.rs        # run/param/env/ui/...
   actions/
     mod.rs
-    registry.rs        # trait Action + ทะเบียน
+    registry.rs        # trait Action, and the registry
     core/              # sh, git, http, notify, version, file
     ios/
     android/
   plugin/
-    mod.rs             # โหลด plugin ภายนอก
+    mod.rs             # loading external plugins
   report/
-    mod.rs             # สรุปผล, JUnit XML, JSON
+    mod.rs             # the summary, JUnit XML, JSON
   error.rs             # ShlaneError
 ```
 
-กฎ: `main.rs` ต้องไม่เกิน ~50 บรรทัด และไม่มี business logic
+The rule: `main.rs` stays under about 50 lines and holds no business logic.
 
 ## Error handling
 
-เลิกใช้ `expect()` ทั้งหมด (ปัจจุบันมีที่ `src/main.rs:75`, `76`, `159`)
+No more `expect()` — there are three today, at `src/main.rs:75`, `76` and `159`.
 
 ```rust
 // error.rs
 #[derive(Debug, thiserror::Error)]
 pub enum ShlaneError {
-    #[error("ไม่พบไฟล์ config: {0}")]
+    #[error("no config file found: {0}")]
     ConfigNotFound(PathBuf),
-    #[error("config ผิดรูปแบบที่ {path}:{line}: {msg}")]
+    #[error("invalid config at {path}:{line}: {msg}")]
     ConfigInvalid { path: PathBuf, line: usize, msg: String },
-    #[error("ไม่พบ lane '{name}' (lane ที่มี: {available})")]
+    #[error("lane '{name}' not found (available: {available})")]
     LaneNotFound { name: String, available: String },
-    #[error("step '{step}' ล้มเหลว (exit code {code})")]
+    #[error("step '{step}' failed with exit code {code}")]
     StepFailed { step: String, code: i32 },
     #[error("script error: {0}")]
     Script(String),
-    #[error("action '{action}' ล้มเหลว: {msg}")]
+    #[error("action '{action}' failed: {msg}")]
     Action { action: String, msg: String },
 }
 ```
 
-- ใช้ `anyhow::Result` ที่ชั้นบน, `thiserror` ที่ชั้น library
-- **ลบ `panic = "abort"` ออกจาก `Cargo.toml`** เพราะบังคับให้ error ทุกอย่างกลายเป็น crash ที่อ่านไม่ออก
-- error ทุกตัวต้องบอกได้ว่า "พังที่ lane ไหน step ที่เท่าไร บรรทัดไหนใน YAML"
+- `anyhow::Result` at the top, `thiserror` underneath.
+- **Remove `panic = "abort"` from `Cargo.toml`.** It turns every error into a crash
+  with nothing to read.
+- Every error should be able to say which lane, which step, and which line of the YAML.
 
-## LaneContext — แทน global state
+## LaneContext, in place of global state
 
-ปัญหาปัจจุบัน: `env::set_var` (`src/main.rs:81`) แก้ env ของทั้งโปรเซส — ใน Rust 2024 เป็น `unsafe` และค่ารั่วข้าม lane
+The problem today: `env::set_var` (`src/main.rs:81`) mutates the whole process. It is
+`unsafe` from Rust 2024 on, and the values leak from one lane into the next.
 
 ```rust
 pub struct LaneContext {
     pub lane: String,
-    pub params: HashMap<String, Value>,   // จาก CLI + default ใน config
-    pub env: HashMap<String, String>,     // ส่งเข้า Command::envs() ไม่แตะ env ของโปรเซส
-    pub outputs: HashMap<String, Value>,  // ผลลัพธ์ของ step/action (แทน lane_context ของ fastlane)
+    pub params: HashMap<String, Value>,   // from the CLI, plus the config's defaults
+    pub env: HashMap<String, String>,     // handed to Command::envs(); the process is untouched
+    pub outputs: HashMap<String, Value>,  // what steps produced, in place of fastlane's lane_context
     pub workdir: PathBuf,
     pub dry_run: bool,
-    pub secrets: SecretRegistry,          // ค่าที่ต้อง mask ใน log (ดู 10)
+    pub secrets: SecretRegistry,          // values to mask in the output (see 10)
     pub started_at: Instant,
 }
 ```
 
-- step ที่มี `id:` จะเก็บผลลง `outputs[id]` → อ้างถึงได้ด้วย `${steps.build.stdout}` หรือ `output("build")` ใน Rhai
-- `env` เป็น map ที่ส่งเข้า child process เท่านั้น ไม่มีการ mutate global
+- A step with an `id:` stores what it did under `outputs[id]`, reachable as
+  `${steps.build.stdout}` or `output("build")` from Rhai.
+- `env` is a map handed to child processes. Nothing global is mutated.
 
-## ลำดับการทำงานของ lane
+## The order a lane runs in
 
-ปัจจุบันตายตัวเป็น before → steps → script → after (`src/main.rs:102-136`) ซึ่งทำให้ `example/shlane.yaml` lane `deploy` ทำงานผิดลำดับ
+Today it is fixed: before → steps → script → after (`src/main.rs:102-136`), which is
+why the `deploy` lane in `example/shlane.yaml` runs in the wrong order.
 
-เป้าหมาย: **`steps` เป็นลำดับเดียว** — script เป็น step ชนิดหนึ่ง ไม่ใช่ block แยก
+The target: **`steps` is the one sequence.** A script is a kind of step, not a separate
+block.
 
 ```
 global before_all
   └─ lane before
        └─ steps[0..n]   (run | action | script | lane)
-            └─ ถ้า fail → lane error hook → global after_all(error) → exit
+            └─ on failure → the lane's error hook → global after_all → exit
        └─ lane after
 global after_all
 ```
 
-`before`/`after`/`script` ระดับ lane ยังรองรับต่อเพื่อ backward compat แต่เอกสารแนะนำให้ใช้ `steps` อย่างเดียว
+The lane-level `before`, `after` and `script` stay for compatibility, but the
+documentation should point people at `steps` alone.
 
-## การประมวลผลของ shell
+## What the shell layer needs
 
-`shell.rs` ต้องรองรับสิ่งที่ `run_shell_command` ปัจจุบันยังไม่มี (`src/main.rs:152-165`):
+`shell.rs` has to do what `run_shell_command` does not (`src/main.rs:152-165`):
 
-| ความสามารถ | เหตุผล |
+| Capability | Why |
 |---|---|
-| จับ stdout/stderr พร้อม stream ออกหน้าจอ | ต้องใช้ผลลัพธ์ต่อ แต่ผู้ใช้ก็อยากเห็น log สด |
-| timeout ต่อ step | กัน job ค้างบน CI |
-| `workdir` ต่อ step | โปรเจกต์ monorepo |
-| เลือก shell (`sh`/`bash`/`pwsh`) | รองรับ Windows |
-| ไม่ `exit(1)` จากในฟังก์ชัน | คืน `Result` ขึ้นไปให้ executor ตัดสินใจ (มี error hook ให้รัน) |
-| mask secret ก่อนพิมพ์ | ดู [10](10-secrets-and-env.md) |
+| Capture stdout and stderr while still streaming them | the output is needed afterwards, but people want to watch it live |
+| A timeout per step | so a job cannot hang on CI |
+| A `workdir` per step | monorepos |
+| A choice of shell (`sh`/`bash`/`pwsh`) | Windows |
+| Never call `exit(1)` from inside | return a `Result` and let the executor decide — there are error hooks to run |
+| Mask secrets before printing | see [10](10-secrets-and-env.md) |
 
-## Dependencies ที่จะเพิ่ม
+## Dependencies this will add
 
-| crate | ใช้ทำอะไร |
+| Crate | For |
 |---|---|
-| `anyhow`, `thiserror` | error |
-| `serde_yaml` (มีแล้ว) หรือย้ายไป `serde_yaml_ng` | serde_yaml ถูก deprecate แล้ว — ตัดสินใจใน M0 |
-| `tracing` + `tracing-subscriber` | logging เป็นระดับ, ใส่ context ได้ |
-| `console` / `owo-colors` | สีและ symbol ใน terminal |
-| `which` | หา binary (xcodebuild, gradle) |
-| `reqwest` (rustls) | action ที่ยิง HTTP |
-| `tempfile`, `assert_cmd`, `insta` | dev-dependencies สำหรับเทส |
+| `anyhow`, `thiserror` | errors |
+| `serde_yaml` (already there) or a move to `serde_yaml_ng` | `serde_yaml` is deprecated — decide in M0 |
+| `tracing` + `tracing-subscriber` | levelled logging with context |
+| `console` / `owo-colors` | colour and symbols in the terminal |
+| `which` | finding binaries (xcodebuild, gradle) |
+| `reqwest` (rustls) | the actions that make HTTP calls |
+| `tempfile`, `assert_cmd`, `insta` | dev-dependencies for the tests |
 
-หลีกเลี่ยงการดึง async runtime เข้ามาถ้าไม่จำเป็น — งานส่วนใหญ่คือรอ subprocess แบบ blocking
+Avoid pulling in an async runtime unless something needs one: almost all of this is
+waiting on a subprocess.
+
+> **What was actually built:** close to this, with three departures, each recorded in
+> the document it departs from — `ureq` instead of `reqwest` (a blocking CLI does not
+> need an async runtime), a small `ui` module instead of `tracing`, and no `anyhow`
+> (the error enum alone turned out to be enough).

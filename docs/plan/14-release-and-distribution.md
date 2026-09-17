@@ -1,63 +1,71 @@
-# 14 — การ Release และแจกจ่าย
+# 14 — Releasing and distributing it
 
-"binary เดียว ไม่ต้องติดตั้งอะไร" จะเป็นจุดขายได้ ก็ต่อเมื่อการติดตั้งง่ายจริง
+"One binary, nothing to install" only sells if installing it really is that easy.
 
-## Target ที่ต้อง build
+## The targets to build
 
-| target | ใช้กับ |
+| Target | For |
 |---|---|
-| `aarch64-apple-darwin` | Mac M1+ (สำคัญสุด — คนทำ mobile ใช้ตัวนี้) |
-| `x86_64-apple-darwin` | Mac Intel |
-| `x86_64-unknown-linux-gnu` | CI ทั่วไป |
-| `aarch64-unknown-linux-gnu` | ARM runner |
-| `x86_64-unknown-linux-musl` | container ที่ไม่มี glibc |
-| `x86_64-pc-windows-msvc` | Windows (เฉพาะ core + Android) |
+| `aarch64-apple-darwin` | Mac M1 and later — the most important one, it is what mobile developers use |
+| `x86_64-apple-darwin` | Intel Macs |
+| `x86_64-unknown-linux-gnu` | ordinary CI |
+| `aarch64-unknown-linux-gnu` | ARM runners |
+| `x86_64-unknown-linux-musl` | containers without glibc |
+| `x86_64-pc-windows-msvc` | Windows, for the core and Android only |
 
-ใช้ [`cargo-dist`](https://opensource.axo.dev/cargo-dist/) สร้าง release workflow, installer script, checksum และ release notes ให้ครบในทีเดียว
+[`cargo-dist`](https://opensource.axo.dev/cargo-dist/) produces the release workflow, the
+installer script, the checksums and the release notes in one go.
 
-## ช่องทางติดตั้ง
+## How it can be installed
 
-| ช่องทาง | คำสั่ง | Priority |
+| Channel | Command | Priority |
 |---|---|---|
-| Install script | `curl -fsSL https://shlane.dev/install.sh \| sh` | P0 |
-| GitHub Releases | ดาวน์โหลด tarball ตรง | P0 |
-| Homebrew tap | `brew install prongbang/tap/shlane` | P0 |
+| An install script | `curl -fsSL https://shlane.dev/install.sh \| sh` | P0 |
+| GitHub Releases | download the tarball directly | P0 |
+| A Homebrew tap | `brew install prongbang/tap/shlane` | P0 |
 | crates.io | `cargo install shlane` | P1 |
-| GitHub Action | ดู [11](11-ci-integration.md) | P0 |
+| A GitHub Action | see [11](11-ci-integration.md) | P0 |
 | Docker | `ghcr.io/prongbang/shlane` | P2 |
-| mise / asdf plugin | — | P2 |
+| A mise / asdf plugin | — | P2 |
 
-## เงื่อนไขก่อน publish ขึ้น crates.io
+## What has to be true before publishing to crates.io
 
-`Cargo.toml` ประกาศ `readme = "README.md"` แต่ **ไฟล์นั้นยังไม่มีอยู่จริง** → `cargo publish` จะล้มเหลว
+`Cargo.toml` declares `readme = "README.md"`, but **that file does not exist**, so
+`cargo publish` fails.
 
-ต้องทำใน M0:
-- [ ] สร้าง `README.md`
-- [ ] ตรวจ `cargo package --list` ว่าไม่มีไฟล์แปลกปลอม
-- [ ] เพิ่ม `LICENSE` (Cargo.toml ระบุ Apache-2.0 แต่ยังไม่มีไฟล์ในรีโป)
-- [ ] `cargo publish --dry-run` ผ่าน
+To do in M0:
+
+- [ ] write `README.md`
+- [ ] check `cargo package --list` for files that should not be in there
+- [ ] add `LICENSE` — Cargo.toml says Apache-2.0, but there is no file in the repository
+- [ ] get `cargo publish --dry-run` to pass
 
 ## Versioning
 
-- Semantic versioning
-- ก่อน 1.0: breaking change ของ schema ได้ แต่ต้องมีบันทึกใน CHANGELOG และ `shlane validate` ต้องเตือนแบบชี้ทางแก้
-- `version: 1` ใน `shlane.yaml` (ดู [03](03-config-schema.md)) ทำให้เปลี่ยน schema ในอนาคตได้โดยไม่พังของเก่า
-- `min_shlane:` ให้ config บอกได้ว่าต้องใช้เวอร์ชันขั้นต่ำเท่าไร
+- Semantic versioning.
+- Before 1.0 the schema may break, but every break goes in the CHANGELOG, and
+  `shlane validate` has to say how to fix it.
+- `version: 1` in `shlane.yaml` (see [03](03-config-schema.md)) is what lets the schema
+  change later without breaking what exists.
+- `min_shlane:` lets a config state the lowest version it works with.
 
-## ความปลอดภัยของ artifact
+## Keeping the artifacts safe
 
-- ปล่อย `SHA256SUMS` ทุก release
-- เซ็น artifact (minisign หรือ cosign keyless ผ่าน GitHub OIDC)
-- install script ต้องตรวจ checksum ก่อนติดตั้ง
-- เปิด GitHub artifact attestation
+- publish `SHA256SUMS` with every release
+- sign the artifacts, with minisign or keyless cosign through GitHub OIDC
+- the install script checks the checksum before installing
+- turn on GitHub artifact attestation
 
-## CHANGELOG
+## The CHANGELOG
 
-ใช้ Keep a Changelog + conventional commits สร้างอัตโนมัติ
-commit แรกของรีโปคือ `feat: initial` ซึ่งเข้ารูปแบบนี้อยู่แล้ว — ตั้ง commitlint ใน CI ต่อได้เลย
+Generated from Keep a Changelog plus conventional commits. The repository's first commit
+is `feat: initial`, which already fits, so commitlint can go into CI straight away.
 
-## ขนาด binary
+## Binary size
 
-`Cargo.toml` ตั้ง `lto = true`, `codegen-units = 1`, `strip = true` ไว้แล้ว ดี
-แต่ต้องลบ `panic = "abort"` ออก (ดู [02](02-architecture.md)) — ยอมให้ binary ใหญ่ขึ้นเล็กน้อยเพื่อแลกกับ error message ที่ใช้งานได้จริง
-ตั้งเป้า: **< 15 MB** ต่อ target และมี CI job ที่เตือนเมื่อขนาดโตขึ้นเกิน 10% ใน PR เดียว
+`Cargo.toml` already sets `lto = true`, `codegen-units = 1` and `strip = true`, which is
+right. But `panic = "abort"` has to go (see [02](02-architecture.md)) — a slightly larger
+binary is worth an error message that is actually usable.
+
+The target: **under 15 MB** per target, with a CI job that warns when a single PR grows
+it by more than 10%.

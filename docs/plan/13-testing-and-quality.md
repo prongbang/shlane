@@ -1,85 +1,92 @@
-# 13 — การทดสอบและคุณภาพโค้ด
+# 13 — Testing, and the quality of the code
 
-ตอนนี้โปรเจกต์ **ไม่มี test เลย** ซึ่งเป็นปัญหาที่ต้องแก้ก่อน refactor ใน M0 ไม่ใช่หลังจากนั้น
+The project has **no tests at all** right now, and that has to be fixed before the
+refactor in M0, not after it.
 
-## ชั้นของการทดสอบ
+## The layers
 
-| ชั้น | ทดสอบอะไร | รันเมื่อไร | เครื่องมือ |
+| Layer | What it covers | When it runs | With |
 |---|---|---|---|
-| **Unit** | parse config, interpolation, การประกอบ argument ของ action, การ mask secret | ทุก commit | `cargo test` |
-| **Integration (CLI)** | รัน binary จริงกับ `shlane.yaml` ตัวอย่าง | ทุก commit | `assert_cmd` + `tempfile` |
-| **Snapshot** | รูปแบบ output ของ `list`, `validate`, ตารางสรุป, error message | ทุก commit | `insta` |
-| **Contract** | action ที่ยิง HTTP (Play Store, App Store Connect) | ทุก commit | `wiremock` / mock server |
-| **E2E** | build จริงบนโปรเจกต์ตัวอย่าง | nightly + ก่อน release | macOS/Linux runner |
+| **Unit** | parsing the config, interpolation, how an action assembles its arguments, masking secrets | every commit | `cargo test` |
+| **Integration (CLI)** | running the real binary against an example `shlane.yaml` | every commit | `assert_cmd` and `tempfile` |
+| **Snapshot** | what `list` and `validate` print, the summary table, error messages | every commit | `insta` |
+| **Contract** | the actions that make HTTP calls (Play Store, App Store Connect) | every commit | `wiremock`, or a mock server |
+| **E2E** | a real build of an example project | nightly, and before a release | a macOS/Linux runner |
 
-## สิ่งที่ต้องมี test ตั้งแต่ M0 (ก่อนแตะโค้ดเดิม)
+## What has to have a test in M0, before the old code is touched
 
-เขียน characterization test ของพฤติกรรมปัจจุบันก่อน เพื่อให้ refactor แล้วรู้ว่าพังตรงไหน:
+Write characterization tests for today's behaviour first, so the refactor shows what it
+broke:
 
-- [ ] lane ที่มี `before`/`steps`/`script`/`after` ครบ รันตามลำดับที่คาด
-- [ ] lane ที่ไม่มีอยู่ → พิมพ์รายชื่อ lane ที่มี (`src/main.rs:139-149`)
-- [ ] `${key}` ถูกแทนค่าใน `run:` (`src/main.rs:65-72`)
-- [ ] คำสั่งที่ exit ไม่ใช่ 0 ทำให้โปรแกรมหยุด (`src/main.rs:161-164`)
-- [ ] YAML ผิดรูปแบบ → ไม่ panic แบบไม่มีข้อความ
+- [ ] a lane with `before`, `steps`, `script` and `after` runs them in the expected order
+- [ ] a lane that does not exist prints the lanes that do (`src/main.rs:139-149`)
+- [ ] `${key}` is substituted in `run:` (`src/main.rs:65-72`)
+- [ ] a command that exits non-zero stops the program (`src/main.rs:161-164`)
+- [ ] malformed YAML does not panic with no message
 
 ## Fixtures
 
 ```
 tests/
   fixtures/
-    minimal.yaml           # lane เดียว step เดียว
-    full.yaml              # ใช้ทุก field ในสเปก (ดู 03)
+    minimal.yaml           # one lane, one step
+    full.yaml              # every field in the spec (see 03)
     invalid_syntax.yaml
     invalid_lane_ref.yaml
     cyclic_lanes.yaml
-    secrets.yaml           # ตรวจว่า secret ไม่หลุด
+    secrets.yaml           # checks that a secret does not escape
   cli/
     run.rs  list.rs  validate.rs  init.rs
   snapshots/
 ```
 
-## เทส action โดยไม่ต้องมี Xcode/Gradle
+## Testing an action without Xcode or Gradle
 
-แยก action เป็น 2 ส่วนเสมอ:
+Always split an action in two:
 
 ```rust
-// ส่วนที่ทดสอบได้ (pure): args → คำสั่งที่จะรัน
+// the testable half (pure): args → the command it would run
 fn build_command(args: &BuildIosArgs) -> Vec<String>
 
-// ส่วนที่ทดสอบไม่ได้: เรียก build_command() แล้ว spawn
+// the untestable half: call build_command(), then spawn
 fn run(...)
 ```
 
-ทดสอบ `build_command()` อย่างละเอียด — นี่คือจุดที่ bug ส่วนใหญ่อยู่ (argument ผิด, quote ผิด, order ผิด) ไม่ใช่ที่การ spawn
+Test `build_command()` thoroughly. That is where nearly all the bugs are — the wrong
+argument, the wrong quoting, the wrong order — not in the spawning.
 
-สำหรับ e2e: เตรียม `examples/ios-sample/` และ `examples/android-sample/` เป็นโปรเจกต์เปล่าที่ build ได้จริง
+For e2e, keep `examples/ios-sample/` and `examples/android-sample/` as empty projects
+that really build.
 
-## คุณภาพโค้ด
+## Code quality
 
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo deny check          # license + advisory
+cargo deny check          # licences and advisories
 cargo test --all-features
 ```
 
-- **MSRV**: กำหนดและใส่ใน `Cargo.toml` (`rust-version`) แล้วเทสใน CI
-- **ห้าม `unwrap()`/`expect()` ในโค้ด production** — บังคับด้วย clippy lint `unwrap_used`, `expect_used` (ยกเว้นใน test)
-- **ห้าม `panic = "abort"`** ใน profile release (ดู [02](02-architecture.md))
+- **MSRV**: pick one, put it in `Cargo.toml` as `rust-version`, and test it in CI.
+- **No `unwrap()` or `expect()` in production code** — enforced with the clippy lints
+  `unwrap_used` and `expect_used`, tests excepted.
+- **No `panic = "abort"`** in the release profile (see [02](02-architecture.md)).
 
-## CI workflow ของตัว shlane เอง
+## shlane's own CI workflow
 
 ```yaml
 jobs:
   check:       # fmt, clippy, deny — ubuntu
   test:        # matrix: ubuntu, macos, windows × stable, MSRV
-  e2e-android: # ubuntu + Android SDK — nightly
+  e2e-android: # ubuntu plus the Android SDK — nightly
   e2e-ios:     # macos-14 — nightly
 ```
 
-## เป้าหมายความครอบคลุม
+## Coverage goals
 
-- config + interpolation + secret masking: **> 90%**
+- config, interpolation and secret masking: **> 90%**
 - runtime/executor: **> 80%**
-- actions: ทุกตัวต้องมี test ของ `build_command()` อย่างน้อย 1 happy path + 1 error case
-- ไม่ตั้งเป้าตัวเลขรวมทั้งโปรเจกต์ เพราะจะไปไล่เทสส่วนที่เป็น glue โดยไม่ได้ประโยชน์
+- actions: every one needs a `build_command()` test, at least one happy path and one
+  error case
+- no target for the project as a whole, because chasing one means writing tests for glue
+  code that prove nothing

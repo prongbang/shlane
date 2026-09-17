@@ -1,49 +1,54 @@
-# 06 — ระบบ Action และ action กลาง
+# 06 — The action system, and the actions that are not tied to a platform
 
-fastlane มี action ~400 ตัว ซึ่งเป็นเหตุผลหลักที่คนยังใช้มัน ส่วนนี้คือหัวใจของงาน
+fastlane has around 400 actions, and that is the main reason people are still on it.
+This part is the heart of the work.
 
-## Trait
+## The trait
 
 ```rust
 pub trait Action: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    fn schema(&self) -> ArgSchema;                 // ใช้ validate + `shlane action show`
+    fn schema(&self) -> ArgSchema;                 // used by validate and `shlane action show`
     fn is_supported(&self, platform: Platform) -> bool;
     fn run(&self, ctx: &mut LaneContext, args: &Args) -> Result<ActionOutput>;
     fn dry_run(&self, ctx: &LaneContext, args: &Args) -> Result<String> { ... }
 }
 
-pub struct ActionOutput(pub HashMap<String, Value>);   // ไหลเข้า ctx.outputs[step_id]
+pub struct ActionOutput(pub HashMap<String, Value>);   // lands in ctx.outputs[step_id]
 ```
 
-## Registry
+## The registry
 
-- ทะเบียน static ตอน compile สำหรับ built-in
-- ทะเบียน dynamic ตอน runtime สำหรับ plugin (ดู [09](09-plugins.md))
-- `shlane action list` / `shlane action show <name>` อ่านจากทะเบียนนี้
-- ชื่อ action ใช้ `snake_case` ตามแบบ fastlane เพื่อให้คนย้ายมาคุ้นมือ
+- Static at compile time for the built-ins.
+- Extended at runtime by plugins (see [09](09-plugins.md)).
+- `shlane action list` and `shlane action show <name>` read from it.
+- Names are `snake_case`, as fastlane's are, so the muscle memory carries over.
 
-## กฎที่ทุก action ต้องทำตาม
+## What every action has to do
 
-1. **ต้องรองรับ `--dry-run`** — พิมพ์คำสั่งจริงที่จะรัน โดยไม่รัน
-2. **ต้องประกาศ binary ที่ต้องใช้** — ถ้าไม่มี `gradle`/`xcodebuild` ต้อง error ด้วย exit code 5 พร้อมบอกวิธีติดตั้ง ไม่ใช่ปล่อย "command not found"
-3. **ต้อง mask secret ใน log** — ค่าที่ schema ทำเครื่องหมาย `sensitive: true` จะถูกลงทะเบียนใน `SecretRegistry` อัตโนมัติ
-4. **ต้อง idempotent เท่าที่ทำได้** — รันซ้ำแล้วไม่พัง
-5. **ต้องคืน output ที่มีประโยชน์** — เช่น `build_ios` คืน `ipa`, `dsym`, `build_number`
-6. **ต้องมี test อย่างน้อย 1 ตัว** (ดู [13](13-testing-and-quality.md))
+1. **Support `--dry-run`** — print the command it would run, without running it.
+2. **Declare the binary it needs.** No `gradle` or `xcodebuild` means exit code 5 and a
+   message about installing it, not a bare "command not found".
+3. **Mask its secrets.** An argument the schema marks `sensitive: true` is registered
+   with the `SecretRegistry` automatically.
+4. **Be idempotent where it can** — running it twice should not break.
+5. **Return something useful** — `build_ios` returns `ipa`, `dsym`, `build_number`.
+6. **Have at least one test** (see [13](13-testing-and-quality.md)).
 
-## Action กลาง (ไม่ผูก platform) — M3
+## The core actions — M3
 
-### Shell / process
-| action | แทนของ fastlane | หมายเหตุ |
+### Shell and process
+
+| Action | In place of | Notes |
 |---|---|---|
-| `sh` | `sh` | เหมือน `run:` แต่เรียกจาก script ได้ |
-| `ensure_env_vars` | `ensure_env_vars` | fail เร็วถ้า secret ไม่ครบ |
-| `which_tool` | — | เช็คว่ามี binary + เวอร์ชันขั้นต่ำ |
+| `sh` | `sh` | like `run:`, but callable from a script |
+| `ensure_env_vars` | `ensure_env_vars` | fail early when a secret is missing |
+| `which_tool` | — | check a binary exists, and its minimum version |
 
 ### Git
-| action | แทนของ |
+
+| Action | In place of |
 |---|---|
 | `git_status_clean` | `ensure_git_status_clean` |
 | `git_branch` | `git_branch` |
@@ -54,45 +59,49 @@ pub struct ActionOutput(pub HashMap<String, Value>);   // ไหลเข้า 
 | `changelog_from_commits` | `changelog_from_git_commits` |
 | `last_git_tag` | `last_git_tag` |
 
-### Version
-| action | แทนของ |
+### Versions
+
+| Action | In place of |
 |---|---|
-| `bump_version` | `increment_version_number` (iOS) / `increment_version_code` (Android) รวมเป็นตัวเดียวที่รู้จัก platform |
+| `bump_version` | `increment_version_number` (iOS) and `increment_version_code` (Android), as one action that works out the format |
 | `read_version` | `get_version_number`, `get_build_number` |
 
-### แจ้งเตือน
-| action | แทนของ |
+### Notifications
+
+| Action | In place of |
 |---|---|
 | `notify_slack` | `slack` |
-| `notify_discord` | plugin |
-| `notify_teams` | plugin |
-| `http_request` | — (escape hatch สำหรับ webhook อื่น) |
+| `notify_discord` | a plugin |
+| `notify_teams` | a plugin |
+| `http_request` | — (the escape hatch for any other webhook) |
 
-### ไฟล์และ artifact
-| action | แทนของ |
+### Files and artifacts
+
+| Action | In place of |
 |---|---|
 | `zip` / `unzip` | `zip` |
 | `copy_artifacts` | `copy_artifacts` |
 | `clean_build_artifacts` | `clean_build_artifacts` |
 | `download` | `download` |
-| `template_render` | `erb` (ใช้ template engine ง่ายๆ แทน ERB) |
+| `template_render` | `erb`, with a simple template engine rather than ERB |
 
-## สถานะ (M3 — ทำแล้ว)
+## Status — M3, done
 
 `sh`, `ensure_env_vars`, `git_status_clean`, `git_branch`, `git_commit`, `git_tag`,
 `git_push`, `last_git_tag`, `changelog_from_commits`, `read_version`, `bump_version`,
-`http_request`, `notify_slack`
+`http_request`, `notify_slack`.
 
-หมายเหตุจากการ implement: `--dry-run` ให้ส่วนที่ "อ่าน" ของ action รันจริง (git status,
-git describe, อ่านไฟล์เวอร์ชัน) และข้ามเฉพาะส่วนที่ "เปลี่ยน" — dry-run ที่คืนผลปลอม
-จะรายงานปัญหาที่ไม่มีจริงและกลบปัญหาที่มีจริง
+Noted while implementing this: under `--dry-run`, an action's *reads* run for real —
+`git status`, `git describe`, reading a version file — and only its *changes* are
+skipped. A dry run that invents results reports problems that do not exist and hides
+the ones that do.
 
-## ลำดับความสำคัญ
+## Priority
 
-จัดลำดับตาม "ถ้าไม่มีตัวนี้ ก็ลบ Gemfile ไม่ได้":
+Ordered by "without this, the `Gemfile` cannot be deleted":
 
 1. **P0** — `sh`, `git_*`, `bump_version`, `notify_slack`, `ensure_env_vars`
 2. **P1** — `changelog_from_commits`, `zip`, `copy_artifacts`, `http_request`
-3. **P2** — ที่เหลือ
+3. **P2** — the rest
 
-ทุกอย่างที่ไม่อยู่ใน P0–P2 ให้ใช้ `run:` ไปก่อน แล้วค่อยดูว่ามีคนขอ action จริงไหม
+Anything outside P0–P2 stays a `run:` step until somebody asks for an action.

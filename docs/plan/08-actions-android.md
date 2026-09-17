@@ -1,22 +1,23 @@
-# 08 — Action ฝั่ง Android
+# 08 — The Android actions
 
-ง่ายกว่า iOS มาก ควรทำ **ก่อน** iOS เพื่อพิสูจน์สถาปัตยกรรม action ด้วยงานที่คุมได้
+Much easier than iOS, and worth doing **before** iOS, to prove the action architecture
+on work that can be kept under control.
 
-## ตารางแปลง
+## The mapping
 
-| fastlane | shlane | ความยาก | Priority |
+| fastlane | shlane | Difficulty | Priority |
 |---|---|---|---|
-| `gradle` | `gradle` | ต่ำ | P0 |
-| `gradle(task: "assembleRelease")` | `build_android` | ต่ำ | P0 |
-| `gradle(task: "bundleRelease")` | `build_android` (`format: aab`) | ต่ำ | P0 |
-| `gradle(task: "test")` | `test_android` | ต่ำ | P0 |
-| `supply` / `upload_to_play_store` | `play_store` | กลาง | P1 |
-| `firebase_app_distribution` (plugin) | `firebase_distribution` | กลาง | P1 |
-| `sign_apk` / `zipalign` (plugin) | `sign_android` | กลาง | P1 |
-| `get_version_code` (plugin) | `read_version` (ดู [06](06-actions-core.md)) | ต่ำ | P0 |
-| `screengrab` | — | — | ไม่ทำ |
+| `gradle` | `gradle` | low | P0 |
+| `gradle(task: "assembleRelease")` | `build_android` | low | P0 |
+| `gradle(task: "bundleRelease")` | `build_android` (`format: aab`) | low | P0 |
+| `gradle(task: "test")` | `test_android` | low | P0 |
+| `supply` / `upload_to_play_store` | `play_store` | medium | P1 |
+| `firebase_app_distribution` (a plugin) | `firebase_distribution` | medium | P1 |
+| `sign_apk` / `zipalign` (a plugin) | `sign_android` | medium | P1 |
+| `get_version_code` (a plugin) | `read_version` (see [06](06-actions-core.md)) | low | P0 |
+| `screengrab` | — | — | not doing it |
 
-## `gradle` — ตัวฐาน
+## `gradle` — the one everything else sits on
 
 ```yaml
 - action: gradle
@@ -26,12 +27,15 @@
     properties:
       android.injected.version.code: ${steps.ver.code}
     flags: ["--no-daemon", "--stacktrace"]
-    wrapper: true        # ใช้ ./gradlew ถ้ามี (default)
+    wrapper: true        # use ./gradlew when there is one (the default)
 ```
 
-- ต้องหา `gradlew` โดยไล่ขึ้นจาก `project_dir` และตรวจ execute permission
-- parse output ของ gradle เพื่อหาไฟล์ที่ถูกสร้าง (`apk`/`aab` path) แล้วคืนเป็น output — ปัจจุบันคนต้อง hardcode path เอง
-- ตั้ง `ORG_GRADLE_PROJECT_*` จาก `properties` แทนการต่อ `-P` ยาวๆ เมื่อค่าเป็น secret (ไม่โผล่ใน process list)
+- `gradlew` has to be found by walking up from `project_dir`, and checked for the
+  execute bit
+- gradle's output has to be read to find what it built (the `apk`/`aab` path) and
+  returned as an output — today people hardcode that path themselves
+- a secret value should go through `ORG_GRADLE_PROJECT_*` rather than a long string of
+  `-P` arguments, so it never appears in the process list
 
 ## `build_android`
 
@@ -45,7 +49,7 @@
     project_dir: ./android
 ```
 
-output: `aab` / `apk`, `mapping_txt`, `version_code`, `version_name`
+Outputs: `aab` / `apk`, `mapping_txt`, `version_code`, `version_name`.
 
 ## `sign_android`
 
@@ -53,19 +57,21 @@ output: `aab` / `apk`, `mapping_txt`, `version_code`, `version_name`
 - action: sign_android
   with:
     input: ${steps.build.apk}
-    keystore: ${env.ANDROID_KEYSTORE_PATH}      # หรือ keystore_base64
+    keystore: ${env.ANDROID_KEYSTORE_PATH}      # or keystore_base64
     keystore_password: ${env.KEYSTORE_PASSWORD} # sensitive
     key_alias: upload
     key_password: ${env.KEY_PASSWORD}           # sensitive
 ```
 
-- ใช้ `apksigner` + `zipalign` จาก Android SDK build-tools (หา path จาก `$ANDROID_HOME`)
-- รองรับ keystore แบบ base64 ใน env สำหรับ CI แล้วเขียนลง temp file ที่ลบทิ้งเสมอ (แม้ตอน error)
-- ค่า password ทุกตัวต้องเข้า `SecretRegistry` (ดู [10](10-secrets-and-env.md))
+- uses `apksigner` and `zipalign` from the Android SDK build-tools, found through
+  `$ANDROID_HOME`
+- takes a base64 keystore from the environment, for CI, and writes it to a temporary
+  file that is always deleted, including when something fails
+- every password goes into the `SecretRegistry` (see [10](10-secrets-and-env.md))
 
-## `play_store` (แทน supply)
+## `play_store`, in place of supply
 
-ใช้ Google Play Developer Publishing API v3 ซึ่งเป็น REST ตรงไปตรงมา:
+Uses the Google Play Developer Publishing API v3, which is plain REST:
 
 ```yaml
 - action: play_store
@@ -81,19 +87,24 @@ output: `aab` / `apk`, `mapping_txt`, `version_code`, `version_name`
       en-US: ${params.notes}
 ```
 
-ขั้นตอนของ API: `edits.insert` → `edits.bundles.upload` → `edits.tracks.update` → `edits.commit`
-ต้องจัดการ: OAuth2 service account (JWT → access token), resumable upload สำหรับไฟล์ใหญ่, retry เมื่อเจอ 5xx และ rate limit
+The API goes `edits.insert` → `edits.bundles.upload` → `edits.tracks.update` →
+`edits.commit`. What has to be handled: the OAuth2 service account (JWT → access
+token), a resumable upload for large files, and retries on 5xx and on the rate limit.
 
 ## `firebase_distribution`
 
-- ทางเลือก 1: wrap `firebase` CLI (เร็ว ทำเสร็จได้ใน 1 วัน) — แต่เพิ่ม dependency ที่ผู้ใช้ต้องติดตั้ง ซึ่งขัดกับเป้าหมาย "binary เดียว"
-- ทางเลือก 2: เรียก Firebase App Distribution REST API ตรง (ใช้ service account เดียวกับ Play)
+- Option 1: wrap the `firebase` CLI. Quick — a day's work — but it adds a dependency the
+  user has to install, which is against the "one binary" goal.
+- Option 2: call the Firebase App Distribution REST API directly, with the same service
+  account as Play.
 
-**ข้อเสนอ: ทำทางเลือก 2** และมี `use_cli: true` เป็น fallback
+**The proposal: option 2**, with `use_cli: true` as a fallback.
 
-## ทำไมต้องทำ Android ก่อน
+## Why Android comes first
 
-1. ทดสอบได้บน Linux runner ที่ถูกและเร็ว
-2. ไม่ต้องมี Apple account ในการพัฒนา
-3. Play API เป็น REST ธรรมดา → พิสูจน์ชั้น HTTP/auth/retry ที่ iOS จะใช้ซ้ำได้
-4. code signing ของ Android คือ "ไฟล์ keystore + password" ซึ่งเข้าใจง่ายกว่า match มาก
+1. It can be tested on a Linux runner, which is cheap and fast.
+2. No Apple account is needed to develop it.
+3. The Play API is ordinary REST, so it proves out the HTTP, auth and retry layer that
+   iOS will reuse.
+4. Android's code signing is "a keystore file and a password", which is far easier to
+   understand than match.

@@ -1,69 +1,73 @@
-# 05 — Rhai Scripting API
+# 05 — The Rhai scripting API
 
-ปัจจุบันมี builtin 4 ตัว: `param`, `env`, `run`, `print` (`src/main.rs:167-199`)
+There are four builtins today: `param`, `env`, `run` and `print`
+(`src/main.rs:167-199`).
 
-## ปัญหาของ API ปัจจุบัน
+## What is wrong with them
 
-| ปัญหา | ผล |
+| Problem | What it costs |
 |---|---|
-| `run()` คืน `i32` อย่างเดียว (`src/main.rs:180`) | เอา stdout ไปใช้ต่อไม่ได้ ซึ่งเป็น use case หลักของการเขียน script |
-| `run()` ไม่หยุดเมื่อ fail | script รันต่อทั้งที่คำสั่งก่อนหน้าพัง |
-| `param()` คืน `""` เมื่อไม่มี key (`src/main.rs:171`) | พิมพ์ชื่อ param ผิดแล้วไม่มีใครรู้ |
-| `env()` อ่านจาก process env (`src/main.rs:175`) | ผูกกับ global state ที่จะเลิกใช้ (ดู [02](02-architecture.md)) |
-| ไม่มีทางเซ็ตค่ากลับไปให้ step ถัดไป | script เป็น dead end |
-| ไม่มี limit | script วนลูปไม่รู้จบทำให้ CI ค้าง |
+| `run()` returns only an `i32` (`src/main.rs:180`) | the stdout cannot be used, which is most of why someone writes a script |
+| `run()` does not stop on failure | the script carries on after a command has already failed |
+| `param()` returns `""` for a name that does not exist (`src/main.rs:171`) | a misspelled parameter goes unnoticed |
+| `env()` reads the process environment (`src/main.rs:175`) | tied to the global state that is being removed (see [02](02-architecture.md)) |
+| Nothing can be handed back to a later step | a script is a dead end |
+| No limits | a runaway loop hangs the CI job |
 
-## API เป้าหมาย
+## The API worth having
 
-### การรันคำสั่ง
+### Running commands
 
 ```rhai
-let r = run("git rev-parse HEAD");   // fail แล้ว throw (ยกเลิก lane)
+let r = run("git rev-parse HEAD");   // raises on failure, ending the lane
 r.stdout      // String
 r.stderr      // String
 r.code        // int
 r.success     // bool
 
-let r = try_run("which gradle");     // ไม่ throw ให้เช็ค r.success เอง
-let out = capture("git log -1 --pretty=%s");   // คืน stdout ที่ trim แล้ว
+let r = try_run("which gradle");     // returns the failure instead of raising it
+let out = capture("git log -1 --pretty=%s");   // stdout, trimmed
 ```
 
-### พารามิเตอร์และ env
+### Parameters and environment
 
 ```rhai
-param("target")              // throw ถ้าไม่มีและไม่มี default
+param("target")              // raises when there is no value and no default
 param_or("target", "dev")
 has_param("target")
-env("APP_ENV")               // อ่านจาก LaneContext ไม่ใช่ process env
-set_env("BUILD_NUMBER", n)   // มีผลกับ step ถัดไปใน lane เดียวกัน
+env("APP_ENV")               // from the LaneContext, not the process
+set_env("BUILD_NUMBER", n)   // applies to later steps in the same lane
 ```
 
-### ส่งค่าระหว่าง step (แทน `lane_context` ของ fastlane)
+### Passing values between steps, in place of fastlane's `lane_context`
 
 ```rhai
 set_output("ipa_path", "build/MyApp.ipa");
-output("build", "ipa")       // อ่านผลของ step id = build
+output("build", "ipa")       // what the step with id "build" produced
 ```
 
-### เรียก action และ lane (ยังไม่ทำ — รอ M3)
+### Calling actions and lanes
 
 ```rhai
 action("build_ios", #{ scheme: "MyApp", configuration: "Release" });
 call_lane("notify", #{ channel: "#releases" });
 ```
 
-นี่คือกุญแจสำคัญ: ทำให้ Rhai เป็น escape hatch เต็มรูปแบบ — อะไรที่ YAML ทำไม่ได้ (เงื่อนไขซับซ้อน, loop) เขียน Rhai แล้วยังเรียก action เดิมได้
+This is the important one: it makes Rhai a complete escape hatch. Whatever YAML cannot
+express — a complicated condition, a loop — can be written here and still reach the
+same actions.
 
-### UI / logging
+### UI and logging
 
 ```rhai
 ui_message("...");  ui_success("...");  ui_error("...");  ui_important("...");
-ui_confirm("จะ deploy จริงไหม?")   // บน CI ให้คืน true อัตโนมัติหรือ error ตาม flag
+ui_confirm("really deploy?")   // on CI, answers itself rather than waiting
 ```
 
-`print()` ปัจจุบัน override built-in ของ Rhai (`src/main.rs:196`) — เก็บไว้ได้แต่ route ผ่านระบบ logging เดียวกัน
+`print()` currently overrides Rhai's own (`src/main.rs:196`). Keep it, but route it
+through the same logging.
 
-### Utility
+### Utilities
 
 ```rhai
 file_exists(p); read_file(p); write_file(p, s);
@@ -72,9 +76,9 @@ semver_bump("1.2.3", "minor");    // "1.3.0"
 now_iso(); git_sha(); git_branch();
 ```
 
-## ความปลอดภัยและขอบเขต
+## Limits
 
-ตั้งค่า Engine ตอนสร้าง (`src/main.rs:87`):
+Set on the engine when it is built (`src/main.rs:87`):
 
 ```rust
 engine.set_max_operations(10_000_000);
@@ -84,14 +88,22 @@ engine.set_max_array_size(100_000);
 engine.disable_symbol("eval");
 ```
 
-และมี timeout รวมของ script ผ่าน `on_progress`
+And an overall timeout through `on_progress`.
 
-## Error reporting
+## Reporting errors
 
-ปัจจุบัน error จาก script ถูก `eprintln!` แล้วรันต่อ (`src/main.rs:125-127`) — ต้องเปลี่ยนเป็น:
-- script error = lane fail (ยกเว้น step นั้นตั้ง `continue_on_error: true`)
-- ข้อความ error ต้องมีเลขบรรทัดของ script และ map กลับไปยังบรรทัดใน `shlane.yaml`
+Today a script error is printed and the run continues (`src/main.rs:125-127`). Instead:
 
-## ทางเลือกในอนาคต
+- a script error fails the lane, unless the step sets `continue_on_error: true`
+- the message carries the line in the script, and maps back to the line in
+  `shlane.yaml`
 
-รองรับ `script_file: ./scripts/release.rhai` เพื่อให้ script ยาวๆ ออกจาก YAML ไปอยู่ในไฟล์ที่ editor ช่วย highlight ได้
+## Later
+
+`script_file: ./scripts/release.rhai`, so a long script can leave the YAML for a file
+an editor can highlight.
+
+> **What was actually built (M2, M3, M6):** all of the above except `call_lane()`,
+> which would mean re-entering the executor from inside a builtin. A `lane:` step does
+> the same thing. `action()` exists, but not inside a Rhai plugin: the registry holds
+> the plugin, so it cannot be handed the registry back.

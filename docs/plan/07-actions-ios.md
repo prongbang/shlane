@@ -1,37 +1,38 @@
-# 07 — Action ฝั่ง iOS
+# 07 — The iOS actions
 
-ส่วนที่ยากที่สุดของการแทน fastlane เพราะ code signing ของ Apple ซับซ้อนจริง
+The hardest part of replacing fastlane, because Apple's code signing really is as
+complicated as it looks.
 
-## ตารางแปลง
+## The mapping
 
-| fastlane | shlane | ความยาก | Priority |
+| fastlane | shlane | Difficulty | Priority |
 |---|---|---|---|
-| `gym` / `build_app` | `build_ios` | สูง | P0 |
-| `scan` / `run_tests` | `test_ios` | กลาง | P0 |
-| `pilot` / `upload_to_testflight` | `testflight` | กลาง | P0 |
-| `match` | `codesign_sync` | สูงมาก | P1 |
-| `sigh` / `get_provisioning_profile` | `provisioning_profile` | สูง | P1 |
-| `cert` / `get_certificates` | `certificate` | สูง | P1 |
-| `deliver` / `upload_to_app_store` | `appstore` | สูงมาก | P2 |
-| `produce` | — | — | ไม่ทำ |
-| `snapshot` | — | — | ไม่ทำ (ใช้ `run:` เรียก xcodebuild เอง) |
-| `frameit` | — | — | ไม่ทำ |
-| `pem`, `precheck`, `spaceship` | — | — | ไม่ทำ |
-| `setup_ci` | `setup_ci` (ดู [11](11-ci-integration.md)) | กลาง | P0 |
-| `create_keychain`, `unlock_keychain`, `delete_keychain` | `keychain` | กลาง | P0 |
-| `update_project_team`, `update_code_signing_settings` | `xcode_settings` | กลาง | P2 |
-| Appfile | `ios:` block ใน `shlane.yaml` | ต่ำ | P1 |
-| Matchfile | `codesign:` block ใน `shlane.yaml` | ต่ำ | P1 |
+| `gym` / `build_app` | `build_ios` | high | P0 |
+| `scan` / `run_tests` | `test_ios` | medium | P0 |
+| `pilot` / `upload_to_testflight` | `testflight` | medium | P0 |
+| `match` | `codesign_sync` | very high | P1 |
+| `sigh` / `get_provisioning_profile` | `provisioning_profile` | high | P1 |
+| `cert` / `get_certificates` | `certificate` | high | P1 |
+| `deliver` / `upload_to_app_store` | `appstore` | very high | P2 |
+| `produce` | — | — | not doing it |
+| `snapshot` | — | — | not doing it (call xcodebuild from a `run:` step) |
+| `frameit` | — | — | not doing it |
+| `pem`, `precheck`, `spaceship` | — | — | not doing it |
+| `setup_ci` | `setup_ci` (see [11](11-ci-integration.md)) | medium | P0 |
+| `create_keychain`, `unlock_keychain`, `delete_keychain` | `keychain` | medium | P0 |
+| `update_project_team`, `update_code_signing_settings` | `xcode_settings` | medium | P2 |
+| Appfile | an `ios:` block in `shlane.yaml` | low | P1 |
+| Matchfile | a `codesign:` block in `shlane.yaml` | low | P1 |
 
-## `build_ios` (แทน gym)
+## `build_ios`, in place of gym
 
-เป็น wrapper ของ `xcodebuild archive` + `xcodebuild -exportArchive`
+A wrapper around `xcodebuild archive` and `xcodebuild -exportArchive`.
 
 ```yaml
 - id: build
   action: build_ios
   with:
-    workspace: MyApp.xcworkspace     # หรือ project:
+    workspace: MyApp.xcworkspace     # or project:
     scheme: MyApp
     configuration: Release
     export_method: app-store         # app-store | ad-hoc | development | enterprise
@@ -42,15 +43,19 @@
     silent: false
 ```
 
-output: `ipa`, `dsym`, `archive`, `app_path`
+Outputs: `ipa`, `dsym`, `archive`, `app_path`.
 
-งานที่ต้องทำจริง:
-- สร้าง `ExportOptions.plist` จาก argument (นี่คือสิ่งที่ gym ทำให้แล้วคนไม่รู้ตัว)
-- parse output ของ xcodebuild ที่ยาวมาก — ต้องมีโหมดสรุป (แบบ xcpretty) ไม่งั้น log จมทะเล
-- แยก error ของ compile ออกจาก error ของ signing ให้ได้ เพราะสองอย่างนี้แก้คนละทาง
-- รองรับ `xcresult` bundle สำหรับดึงผล
+The real work is:
 
-## `test_ios` (แทน scan)
+- building `ExportOptions.plist` from the arguments — this is what gym does for people
+  without them noticing
+- parsing xcodebuild's very long output. There has to be a summarising mode, the way
+  xcpretty has one, or the log drowns everything.
+- telling a compile error apart from a signing error, because the two are fixed in
+  completely different ways
+- reading the `xcresult` bundle for the result
+
+## `test_ios`, in place of scan
 
 ```yaml
 - action: test_ios
@@ -62,59 +67,66 @@ output: `ipa`, `dsym`, `archive`, `app_path`
     code_coverage: true
 ```
 
-ต้อง parse `.xcresult` ด้วย `xcrun xcresulttool get --format json` แล้วแปลงเป็น JUnit XML ([11](11-ci-integration.md))
+The `.xcresult` has to be read with `xcrun xcresulttool get --format json` and turned
+into JUnit XML ([11](11-ci-integration.md)).
 
-## Code signing — ตัดสินใจเชิงกลยุทธ์
+## Code signing — the strategic decision
 
-`match` คือเหตุผลอันดับหนึ่งที่ทีมยังติดกับ fastlane มันเก็บ certificate/profile ที่เข้ารหัสไว้ใน git repo แล้วซิงก์ลงทุกเครื่อง
+`match` is the number one reason teams are still stuck on fastlane. It keeps encrypted
+certificates and profiles in a git repository and syncs them onto every machine.
 
-มี 3 ทางเลือก:
+There are three options:
 
-| ทางเลือก | ข้อดี | ข้อเสีย |
+| Option | For | Against |
 |---|---|---|
-| **A. เข้ากันได้กับ match repo เดิม** | ทีมย้ายมาได้โดยไม่ต้องออก certificate ใหม่ | ต้อง reverse-engineer รูปแบบการเข้ารหัสของ match (OpenSSL AES-256-CBC) และโครงสร้างโฟลเดอร์ให้ตรงเป๊ะ |
-| **B. ทำระบบใหม่ของตัวเอง** | ออกแบบได้สะอาด ใช้ age/sops ที่ปลอดภัยกว่า | ทีมต้อง migrate certificate ซึ่งเจ็บปวด |
-| **C. รองรับเฉพาะ App Store Connect API + `-allowProvisioningUpdates`** | ง่ายสุด ไม่ต้องเก็บ secret เอง Apple จัดการให้ | ไม่รองรับ enterprise/ad-hoc บางกรณี และต้องมี API key |
+| **A. Work with an existing match repo** | a team can move over without issuing new certificates | means reverse-engineering match's encryption (OpenSSL AES-256-CBC) and its folder layout exactly |
+| **B. Build something new** | a clean design, on something safer like age/sops | the team has to migrate its certificates, which hurts |
+| **C. App Store Connect API plus `-allowProvisioningUpdates` only** | by far the simplest; no secrets to keep, Apple does it | does not cover some enterprise and ad-hoc cases, and needs an API key |
 
-**ข้อเสนอ: ทำ C ก่อน (M5) → A ทีหลัง (M6+)**
-เพราะ C ครอบคลุม CI สมัยใหม่ส่วนใหญ่ และให้ value เร็วสุด ส่วน A เป็นตัวชี้ขาดว่าทีมใหญ่จะย้ายมาได้ไหม
+**The proposal: C first (M5), then A later (M6+).** C covers most modern CI and gives
+value soonest; A is what decides whether a large team can move at all.
 
-> **ทำทั้ง C และ A แล้ว (M5/M6):** `build_ios` ใช้ `-allowProvisioningUpdates` (C) และ
-> `codesign_sync` อ่าน match repo เดิมได้ (A) แบบ **read-only** — ไม่ออกและไม่เพิกถอน
-> certificate เพราะทำพลาดแล้วทีมเสียความสามารถในการ ship การถอดรหัสทำใน process เอง
-> (ไม่เรียก `openssl` CLI เพราะ macOS ใช้ LibreSSL ซึ่งเคยทำให้ match พังมาแล้ว)
-> รองรับทั้ง `-md sha256` และ `-md md5` ของ repo เก่า
+> **Both C and A were built (M5/M6):** `build_ios` passes
+> `-allowProvisioningUpdates` (C), and `codesign_sync` can read an existing match repo
+> (A) **read-only** — it does not issue or revoke certificates, because getting that
+> wrong costs a team its ability to ship. The decryption happens in process (the
+> `openssl` CLI is not called, because macOS ships LibreSSL, which has broken match
+> before). Both `-md sha256` and older repos' `-md md5` are supported.
 
-## App Store Connect API
+## The App Store Connect API
 
-ทั้ง `testflight` และ `appstore` ต้องใช้ JWT ที่เซ็นด้วย ES256 จาก `.p8` key
+Both `testflight` and `appstore` need a JWT signed with ES256 from a `.p8` key.
 
 ```yaml
 ios:
   api_key:
     key_id: ${env.ASC_KEY_ID}
     issuer_id: ${env.ASC_ISSUER_ID}
-    key_content: ${env.ASC_KEY_P8}     # base64 — ต้องถูก mask ใน log เสมอ
+    key_content: ${env.ASC_KEY_P8}     # base64 — must always be masked in the log
 ```
 
-- ใช้ `jsonwebtoken` + `p256`/`ring` สำหรับเซ็น
-- token อายุ 20 นาที ต้อง refresh อัตโนมัติสำหรับการอัปโหลดที่ใช้เวลานาน
-- การอัปโหลด binary จริงยังต้องใช้ `xcrun altool` / `iTMSTransporter` ในเฟสแรก — เขียน uploader เองทีหลังถ้าจำเป็น
+- signed with `jsonwebtoken` plus `p256`/`ring`
+- the token lasts 20 minutes, so a long upload has to refresh it automatically
+- uploading the binary itself still goes through `xcrun altool` / `iTMSTransporter` in
+  the first phase — write an uploader later if it turns out to be necessary
 
-## สถานะ (M5)
+## Status — M5
 
-| action | สถานะ |
+| Action | Status |
 |---|---|
-| `build_ios` | ✅ ทำแล้ว (archive + export + ExportOptions.plist) |
-| `test_ios` | ✅ ทำแล้ว + แปลง xcresult → JUnit (ต้อง Xcode 16+) |
-| `keychain` | ✅ ทำแล้ว |
-| `testflight` | ✅ ทำแล้ว (ผ่าน `xcrun altool`) |
-| `asc_request` | ✅ ทำแล้ว (เรียก ASC API อะไรก็ได้ ด้วย ES256 JWT) |
-| `codesign_sync` (match) | ✅ ทำแล้ว (read-only — อ่าน match repo เดิมได้ ไม่ออก/เพิกถอน certificate) |
-| `appstore` (deliver) | ❌ ยังไม่ทำ (M7) |
+| `build_ios` | ✅ done (archive + export + ExportOptions.plist) |
+| `test_ios` | ✅ done, including xcresult → JUnit (needs Xcode 16+) |
+| `keychain` | ✅ done |
+| `testflight` | ✅ done, through `xcrun altool` |
+| `asc_request` | ✅ done — calls any ASC API endpoint, with an ES256 JWT |
+| `codesign_sync` (match) | ✅ done, read-only — reads an existing match repo, never issues or revokes a certificate |
+| `appstore` (deliver) | ❌ not done (M7) |
 
-## ความเสี่ยง
+## Risks
 
-- **Apple เปลี่ยน API/พฤติกรรมบ่อย** — ต้องมี integration test ที่รันจริงบน macOS runner อย่างน้อยสัปดาห์ละครั้ง
-- **ทดสอบยาก** — ต้องมี Apple Developer account จริง แยก test เป็น 2 ชั้น: unit test ของการประกอบ argument (รันทุก PR) กับ e2e (รันตามตาราง)
-- **macOS runner แพง** — จำกัดจำนวน e2e
+- **Apple changes the APIs and the behaviour often.** There has to be an integration
+  test that really runs on a macOS runner, at least once a week.
+- **It is hard to test.** A real Apple Developer account is needed, so the tests come in
+  two layers: unit tests over how the arguments are assembled (every PR), and e2e (on a
+  schedule).
+- **macOS runners are expensive**, which limits how many e2e runs there can be.

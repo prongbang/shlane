@@ -1,155 +1,174 @@
-# 15 — Roadmap
+# 15 — The roadmap
 
-ลำดับการลงมือจริง แต่ละ milestone ต้อง **ปล่อยของที่ใช้ได้** ไม่ใช่แค่ refactor ค้าง
+The order the work actually happens in. Every milestone has to **ship something
+usable**, not leave a refactor half-finished.
 
-## M0 — ฐานราก (จำเป็นก่อนทุกอย่าง) ✅ เสร็จแล้ว
+## M0 — The foundations, needed before anything else ✅ done
 
-| งาน | เอกสาร |
+| Work | Document |
 |---|---|
-| เขียน `README.md` และเพิ่มไฟล์ `LICENSE` (Apache-2.0) | [14](14-release-and-distribution.md) |
-| เขียน characterization test ของพฤติกรรมปัจจุบัน | [13](13-testing-and-quality.md) |
-| แตก `main.rs` เป็นโมดูลตามโครงใน [02](02-architecture.md) | [02](02-architecture.md) |
-| เปลี่ยน `expect()` → `Result` + `ShlaneError`, ลบ `panic = "abort"` | [02](02-architecture.md) |
-| ตั้ง CI: fmt, clippy (`-D warnings`), test matrix | [13](13-testing-and-quality.md) |
-| แก้ command injection ใน interpolation | [03](03-config-schema.md) |
+| write `README.md`, and add the `LICENSE` file (Apache-2.0) | [14](14-release-and-distribution.md) |
+| write characterization tests for today's behaviour | [13](13-testing-and-quality.md) |
+| split `main.rs` into the modules in [02](02-architecture.md) | [02](02-architecture.md) |
+| turn `expect()` into `Result` and `ShlaneError`, and remove `panic = "abort"` | [02](02-architecture.md) |
+| set up CI: fmt, clippy (`-D warnings`), a test matrix | [13](13-testing-and-quality.md) |
+| fix the command injection in interpolation | [03](03-config-schema.md) |
 
-**เสร็จเมื่อ:** พฤติกรรมเดิมทุกอย่างยังทำงาน มี test ครอบ, CI เขียว, error ทุกตัวอ่านรู้เรื่อง
+**Done when:** everything that worked before still works, with tests over it, CI is
+green, and every error message can be understood.
 
-## M1 — Config และ CLI v1 ✅ เสร็จแล้ว
+## M1 — Config and CLI v1 ✅ done
 
-- schema v1 ตาม [03](03-config-schema.md): `version`, `params` แบบมี type/required/default, `description`, `private`, `platform`, `if`, `id`, `workdir`, `timeout`, `retry`, `continue_on_error`
-- step แบบ `lane:` (เรียก lane อื่น) และ `error` hook
-- หา config แบบไล่ขึ้น directory tree
-- คำสั่ง `list`, `validate`, `init`, `completions`
-- exit codes ตาม [04](04-cli-ux.md), ตารางสรุปตอนจบ, `--dry-run`
+- schema v1 from [03](03-config-schema.md): `version`, `params` with type/required/default,
+  `description`, `private`, `platform`, `if`, `id`, `workdir`, `timeout`, `retry`,
+  `continue_on_error`
+- a `lane:` step, calling another lane, and the `error` hook
+- finding the config by walking up the directory tree
+- the `list`, `validate`, `init` and `completions` commands
+- the exit codes from [04](04-cli-ux.md), the summary table at the end, and `--dry-run`
 
-**เสร็จเมื่อ:** เขียน pipeline จริงด้วย `run:` ล้วนๆ แล้วใช้งานแทน shell script ได้
+**Done when:** a real pipeline written with nothing but `run:` can replace a shell
+script.
 
-> ยังเหลือจาก M1: การจัดการ Ctrl-C (ต้องมี signal handler), `--json`, `--verbose/-q` และสี
-> — ย้ายไปรวมกับงาน logging ใน M2
+> Left over from M1: handling Ctrl-C, which needs a signal handler, plus `--json`,
+> `--verbose/-q` and colour — moved in with the logging work in M2.
 
-## M2 — Runtime และ scripting ✅ เสร็จแล้ว
+## M2 — The runtime and scripting ✅ done
 
-- `LaneContext` เต็มรูปแบบ, ลบ `env::set_var` ทั้งหมด
-- `.env` / `env_files` / ลำดับความสำคัญของ env ([10](10-secrets-and-env.md))
-- `SecretRegistry` + การ mask ทุกช่องทาง
-- Rhai API ใหม่ตาม [05](05-scripting-rhai.md): `run()` คืน struct, `set_output()`, `call_lane()`, limits
-- logging ด้วย `tracing`, `--json`, `--verbose/-q`
+- the full `LaneContext`, and every `env::set_var` gone
+- `.env`, `env_files`, and the environment precedence ([10](10-secrets-and-env.md))
+- the `SecretRegistry`, and masking on every path out
+- the new Rhai API from [05](05-scripting-rhai.md): `run()` returning a struct,
+  `set_output()`, `call_lane()`, the limits
+- logging through `tracing`, `--json`, `--verbose/-q`
 
-**เสร็จเมื่อ:** test พิสูจน์ได้ว่า secret ไม่หลุดใน log ทุกรูปแบบ และส่งค่าระหว่าง step ได้
+**Done when:** a test proves no secret escapes into the log in any form, and a value can
+be passed from one step to another.
 
-> หมายเหตุจากการ implement: `call_lane()` และ `action()` ใน Rhai ยังไม่ได้ทำ เพราะต้องเรียก
-> executor ซ้อนเข้าไปจาก builtin ซึ่งต้องรื้อ ownership — ทำพร้อม action registry ใน M3
-> ส่วน logging ใช้ `ui` module ของตัวเองแทน `tracing` (CLI ต้องการ event stream ที่นิ่ง
-> มากกว่า subscriber stack)
+> Noted while implementing this: `call_lane()` and `action()` in Rhai are not done,
+> because they mean re-entering the executor from inside a builtin, which means pulling
+> the ownership apart — to be done with the action registry in M3. Logging uses a `ui`
+> module of its own instead of `tracing`: a CLI wants a steady event stream more than it
+> wants a subscriber stack.
 
-## M3 — Action framework + action กลาง ✅ เสร็จแล้ว
+## M3 — The action framework, and the core actions ✅ done
 
-- `trait Action` + registry + `shlane action list/show`
-- action P0 ตาม [06](06-actions-core.md): `sh`, `git_*`, `bump_version`, `read_version`, `notify_slack`, `ensure_env_vars`, `http_request`
+- `trait Action`, the registry, and `shlane action list/show`
+- the P0 actions from [06](06-actions-core.md): `sh`, `git_*`, `bump_version`,
+  `read_version`, `notify_slack`, `ensure_env_vars`, `http_request`
 
-**เสร็จเมื่อ:** lane "bump version + commit + tag + push + แจ้ง Slack" ทำได้โดยไม่ต้องเขียน shell เลย
+**Done when:** a "bump version, commit, tag, push, tell Slack" lane needs no shell at
+all.
 
-> ทำแล้ว 13 action และ `action()` ใน Rhai ด้วย ส่วน `call_lane()` ยังไม่ทำ (ต้องเรียก
-> executor ซ้อน) — ใช้ step `lane:` แทน
+> 13 actions done, plus `action()` in Rhai. `call_lane()` is still not done — it needs a
+> nested executor — so a `lane:` step does it instead.
 >
-> เปลี่ยนจากแผน: ใช้ `ureq` แทน `reqwest` (CLI แบบ blocking ไม่ต้องแบก async runtime)
-> ผลคือ MSRV ขยับ 1.74 → 1.85 และ binary 3.6 → 5.4 MB
+> Changed from the plan: `ureq` instead of `reqwest`, because a blocking CLI should not
+> carry an async runtime. The cost: MSRV moved 1.74 → 1.85, and the binary 3.6 → 5.4 MB.
 
-## M4 — Android ✅ เสร็จแล้ว
+## M4 — Android ✅ done
 
-- `gradle`, `build_android`, `test_android`, `sign_android` ([08](08-actions-android.md))
-- `play_store` (Publishing API v3)
+- `gradle`, `build_android`, `test_android`, `sign_android`
+  ([08](08-actions-android.md))
+- `play_store`, on Publishing API v3
 - `firebase_distribution`
-- report JUnit ([11](11-ci-integration.md))
+- the JUnit report ([11](11-ci-integration.md))
 
-**เสร็จเมื่อ:** โปรเจกต์ Android จริงลบ `Gemfile` ทิ้งได้
+**Done when:** a real Android project can delete its `Gemfile`.
 
-> ทำแล้ว: `gradle`, `build_android`, `test_android`, `sign_android`, `play_store`,
-> `firebase_distribution` และ `--report junit|json|md`
+> Done: `gradle`, `build_android`, `test_android`, `sign_android`, `play_store`,
+> `firebase_distribution`, and `--report junit|json|md`.
 >
-> ต่างจากแผน: `firebase_distribution` ใช้วิธี wrap `firebase` CLI (ทางเลือก 1 ในเอกสาร)
-> ไม่ใช่ REST เพราะ upload endpoint คืน long-running operation ที่ต้อง poll และเทสกับ
-> ของจริงไม่ได้ — REST ยังเป็นงานในอนาคต
+> Different from the plan: `firebase_distribution` wraps the `firebase` CLI (option 1 in
+> the document) rather than the REST API, because the upload endpoint returns a
+> long-running operation that has to be polled, and none of it could be tested against
+> the real thing. REST is still future work.
 >
-> ยังไม่ได้ verify: `play_store` เทสเฉพาะรูปร่าง request (unit test) การคุยกับ Google
-> จริงต้องมี service account — เป็นงาน e2e
+> Not verified: `play_store` is only tested on the shape of the request, in unit tests.
+> Really talking to Google needs a service account, so that is e2e work.
 
-## M5 — iOS ✅ เสร็จแล้ว (ยังไม่ได้ verify กับ Xcode จริง)
+## M5 — iOS ✅ done, but not verified against a real Xcode
 
-- `build_ios`, `test_ios` + parse `.xcresult`
+- `build_ios`, `test_ios` and reading `.xcresult`
 - `keychain`, `setup_ci`
-- App Store Connect API (JWT) + `testflight`
-- code signing ทางเลือก C (API key + `-allowProvisioningUpdates`) ตาม [07](07-actions-ios.md)
+- the App Store Connect API (JWT), and `testflight`
+- code signing option C — an API key plus `-allowProvisioningUpdates` — from
+  [07](07-actions-ios.md)
 
-**เสร็จเมื่อ:** โปรเจกต์ iOS จริงขึ้น TestFlight ได้จาก CI
+**Done when:** a real iOS project can reach TestFlight from CI.
 
-> ทำแล้ว: `build_ios` (พร้อมสร้าง ExportOptions.plist), `test_ios`, `keychain`,
-> `testflight` (ผ่าน altool), `asc_request` (ES256 JWT ด้วย ring)
+> Done: `build_ios`, including generating ExportOptions.plist, `test_ios`, `keychain`,
+> `testflight` through altool, and `asc_request` (ES256 JWT with ring).
 >
-> - ~~`codesign_sync` / match~~ ✅ ทำแล้วใน M6 (read-only — อ่าน match repo เดิมได้)
-> - ~~แปลง `.xcresult` เป็น JUnit~~ ✅ ทำแล้ว (`test_ios` + `junit:`) — parser เขียนแบบ
->   ทนต่อ schema ที่เปลี่ยน เทสกับ fixture ที่นี่ ส่วนของจริงให้ job บน macOS runner
->   (`examples/ios-sample`) เป็นคนยืนยัน และเก็บ output ดิบของ `xcresulttool` เป็น artifact
->   ไว้อ่านเวลา Apple เปลี่ยน schema
+> - ~~`codesign_sync` / match~~ ✅ done in M6, read-only — it can read an existing match
+>   repo
+> - ~~`.xcresult` → JUnit~~ ✅ done (`test_ios` plus `junit:`). The parser is written to
+>   survive a schema change; it is tested against a fixture here, and the real thing is
+>   confirmed by a job on a macOS runner (`examples/ios-sample`), which keeps
+>   `xcresulttool`'s raw output as an artifact to read when Apple changes the schema.
 >
-> **ยังไม่ได้ verify:** ทุก action ต้องมี macOS + Xcode — unit test คลุมการประกอบคำสั่ง,
-> plist และ JWT claims แต่ไม่ได้ทดสอบกับของจริง
+> **Not verified:** every one of these actions needs macOS and Xcode. The unit tests
+> cover how the commands, the plist and the JWT claims are assembled, but nothing has run
+> against the real thing.
 
-## M6 — ระบบนิเวศ ⚠️ เสร็จบางส่วน
+## M6 — The ecosystem ⚠️ partly done
 
-- plugin แบบ external executable + Rhai module ([09](09-plugins.md))
-- `shlane migrate` + `docs/migration.md` ([12](12-migration-from-fastlane.md))
-- `codesign_sync` ที่อ่าน match repo เดิมได้ (ทางเลือก A)
-- GitHub Action wrapper + Homebrew tap ([14](14-release-and-distribution.md))
+- external-executable and Rhai-module plugins ([09](09-plugins.md))
+- `shlane migrate` and `docs/migration.md` ([12](12-migration-from-fastlane.md))
+- a `codesign_sync` that can read an existing match repo (option A)
+- the GitHub Action wrapper and the Homebrew tap
+  ([14](14-release-and-distribution.md))
 
-> ทำแล้ว: plugin แบบ external executable (`path:` เท่านั้น) + lockfile SHA-256 +
-> `plugin list/lock/verify`, และ `shlane migrate`
+> Done: external-executable plugins (`path:` only), the SHA-256 lockfile,
+> `plugin list/lock/verify`, and `shlane migrate`.
 >
-> **ยังไม่ทำ:**
-> - ~~ดึง plugin จาก git host~~ ✅ ทำแล้ว (`shlane plugin install` + ตรวจ lockfile, ไม่ auto-install ตอนรัน)
-> - ~~Rhai module plugin (ทางเลือก B)~~ ✅ ทำแล้ว
-> - ~~`codesign_sync` ที่อ่าน match repo เดิม~~ ✅ ทำแล้ว (read-only)
-> - ~~GitHub Action wrapper~~ ✅ ทำแล้ว (`action.yml` + `install.sh`) / Homebrew tap ยังไม่ทำ
+> **Not done:**
+> - ~~fetching a plugin from a git host~~ ✅ done (`shlane plugin install`, checked
+>   against the lockfile; never installed automatically during a run)
+> - ~~Rhai module plugins (option B)~~ ✅ done
+> - ~~a `codesign_sync` that reads an existing match repo~~ ✅ done, read-only
+> - ~~the GitHub Action wrapper~~ ✅ done (`action.yml` and `install.sh`); the Homebrew
+>   tap is still not done
 
-## M7 — 1.0 ⚠️ เสร็จบางส่วน
+## M7 — 1.0 ⚠️ partly done
 
-> ทำแล้ว: CI detection + GitHub annotations, `shlane env`, `install.sh` (ตรวจ checksum),
-> `action.yml`, release workflow (macOS arm64/x86-64, Linux x86-64/arm64/musl)
+> Done: CI detection and GitHub annotations, `shlane env`, `install.sh` with a checksum
+> check, `action.yml`, and the release workflow (macOS arm64/x86-64, Linux
+> x86-64/arm64/musl).
 >
-> **ยังไม่ทำ:** `appstore` (deliver — อัปโหลด metadata ขึ้น App Store), เอกสารบนเว็บ,
-> Homebrew tap, การแช่ schema v1 อย่างเป็นทางการ
+> **Not done:** `appstore` (deliver — uploading metadata to the App Store), the
+> documentation site, the Homebrew tap, and formally freezing schema v1.
 >
-> **ไม่มี Windows binary:** runner ยังเรียก `sh` ตรงๆ อยู่ — บอกตรงๆ ดีกว่าปล่อย binary
-> ที่พังตั้งแต่ step แรก
+> **There is no Windows binary:** the runner still calls `sh` directly. Saying so is
+> better than shipping a binary that fails on the first step.
 
-- `appstore` (upload metadata + submit for review)
-- เอกสารครบบนเว็บ
-- แช่ schema v1, สัญญาเรื่อง backward compatibility
-- e2e nightly ทั้งสอง platform เขียวติดต่อกัน 2 สัปดาห์
+- `appstore` — upload metadata and submit for review
+- the full documentation, on the web
+- schema v1 frozen, with a backward-compatibility promise
+- the nightly e2e on both platforms green for two weeks running
 
-## ลำดับความสำคัญถ้ามีเวลาจำกัด
+## If there is only time for some of it
 
-ถ้าทำได้แค่ 3 อย่าง: **M0 → M1 → M4**
-เพราะได้เครื่องมือที่ใช้แทน shell script ได้จริงบน Android โดยไม่ต้องแตะความซับซ้อนของ Apple
+If only three things get done: **M0 → M1 → M4.** That gives a tool that really can
+replace a shell script on Android, without touching any of Apple's complexity.
 
-## ความเสี่ยงหลัก
+## The main risks
 
-| ความเสี่ยง | ผลกระทบ | การรับมือ |
+| Risk | What it costs | What to do about it |
 |---|---|---|
-| **ขอบเขตบานปลายไปไล่ทำ action ให้ครบ 400 ตัว** | ไม่มีวันเสร็จ | ยึด P0/P1/P2 ใน [06](06-actions-core.md) และปล่อยให้ `run:` + plugin รับส่วนที่เหลือ |
-| **`match` คือกำแพงที่ทีมใหญ่ข้ามไม่ได้** | ย้ายมาไม่ได้จริง | ทำทางเลือก C ก่อนเพื่อได้ value เร็ว แล้วทำ A ใน M6 |
-| **Apple/Google เปลี่ยน API** | action พังเงียบๆ | e2e nightly + แยกชั้น HTTP ให้แก้จุดเดียว |
-| **maintainer คนเดียว** | bus factor = 1 | ทำ plugin ให้ดีตั้งแต่ต้น เพื่อให้ชุมชนเติมส่วนที่ขาดได้เอง |
-| **fastlane "ก็ใช้ได้อยู่แล้ว"** | ไม่มีคนย้าย | โฟกัสจุดที่เจ็บจริง: เวลา setup บน CI และ error message ที่อ่านรู้เรื่อง |
-| **ทดสอบ iOS ต้องมี Apple account** | เทสไม่ได้ | แยก `build_command()` ออกมาเทสแบบ pure ([13](13-testing-and-quality.md)) |
+| **Scope creep, chasing all 400 actions** | it never finishes | hold to the P0/P1/P2 split in [06](06-actions-core.md), and let `run:` and plugins carry the rest |
+| **`match` is the wall a large team cannot get over** | they cannot really move | do option C first for the quick value, then A in M6 |
+| **Apple and Google change their APIs** | an action breaks silently | nightly e2e, and one HTTP layer so there is one place to fix |
+| **A single maintainer** | bus factor of 1 | make plugins good from the start, so the community can fill the gaps |
+| **"fastlane works fine as it is"** | nobody moves | focus on what actually hurts: setup time on CI, and error messages that can be read |
+| **Testing iOS needs an Apple account** | it cannot be tested | pull `build_command()` out and test it pure ([13](13-testing-and-quality.md)) |
 
-## ตัวชี้วัดความสำเร็จ
+## What success is measured by
 
-| ตัวชี้วัด | เป้า |
+| Measure | Target |
 |---|---|
-| เวลา setup บน CI (เทียบ `bundle install`) | < 5 วินาที (จาก 30–120 วินาที) |
-| เวลาเริ่มทำงานของ `shlane run` | < 100 ms |
-| ขนาด binary | < 15 MB |
-| เวลาที่ใช้ย้าย Fastfile 100 บรรทัด | < 1 ชั่วโมง |
-| โปรเจกต์จริงที่ลบ `Gemfile` ได้ | อย่างน้อย 1 ตัวต่อ platform ก่อน 1.0 |
+| setup time on CI, against `bundle install` | under 5 seconds, from 30–120 |
+| how long `shlane run` takes to start | under 100 ms |
+| binary size | under 15 MB |
+| moving a 100-line Fastfile | under an hour |
+| real projects that deleted their `Gemfile` | at least one per platform before 1.0 |

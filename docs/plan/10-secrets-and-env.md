@@ -1,76 +1,87 @@
-# 10 — Environment และ Secrets
+# 10 — The environment, and secrets
 
-## ปัญหาปัจจุบัน
+## What is wrong today
 
 ```rust
 // src/main.rs:79-83
 if let Some(envs) = config.env {
     for (key, value) in envs {
-        env::set_var(key, value);      // แก้ env ของทั้งโปรเซส
+        env::set_var(key, value);      // changes the whole process
     }
 }
 ```
 
-1. `env::set_var` เป็น `unsafe` ใน Rust 2024 (ไม่ thread-safe)
-2. ค่ารั่วข้าม lane — lane ที่เรียกทีหลังเห็น env ของ lane ก่อนหน้า
-3. `example/shlane.yaml` เก็บ `API_KEY: "abc123"` ตรงๆ ในไฟล์ที่ commit → สอนวิธีที่ผิด
-4. ไม่มีการ mask ค่าใดๆ ใน log เลย
+1. `env::set_var` is `unsafe` in Rust 2024, because it is not thread-safe.
+2. Values leak between lanes — a lane called later sees the previous lane's environment.
+3. `example/shlane.yaml` holds `API_KEY: "abc123"` directly, in a file that is
+   committed, which teaches the wrong habit.
+4. Nothing is masked in the log at all.
 
-## ลำดับความสำคัญของ env (สูงสุดชนะ)
+## Environment precedence, highest wins
 
 ```
-1. env ของ step        (step.env)
-2. --param / ตัวแปรที่ set_env() ใน script
-3. env ของ lane        (lane.env)
-4. env ของ process     (ที่ CI ฉีดมา)
-5. .env.<profile>      (จาก --env หรือ $SHLANE_PROFILE)
+1. the step's env       (step.env)
+2. --param, and anything set_env() set in a script
+3. the lane's env       (lane.env)
+4. the process env      (what CI injected)
+5. .env.<profile>       (from --env or $SHLANE_PROFILE)
 6. .env
-7. env ของ config      (config.env)
+7. the config's env     (config.env)
 ```
 
-env ทั้งหมดอยู่ใน `LaneContext.env` แล้วส่งเข้า child process ด้วย `Command::envs()` — **ไม่แตะ env ของโปรเซสหลักเลย**
+All of it lives in `LaneContext.env` and reaches the child process through
+`Command::envs()` — **the main process's own environment is never touched**.
 
-## ไฟล์ .env
+## .env files
 
 ```yaml
 env_files:
-  - .env                    # ไม่ commit
-  - .env.${SHLANE_PROFILE}  # ไม่ commit
-  - .env.defaults           # commit ได้ (ค่าที่ไม่ลับ)
+  - .env                    # not committed
+  - .env.${SHLANE_PROFILE}  # not committed
+  - .env.defaults           # can be committed — nothing secret in it
 ```
 
-- ไฟล์ที่ไม่มีอยู่จริงให้ข้ามเงียบๆ ถ้าอยู่ในรูป `${...}` ที่ resolve ไม่ได้
-- `shlane init` ต้องเพิ่ม `.env*` ลง `.gitignore` ให้ (ยกเว้น `.env.defaults`)
+- a file that does not exist is skipped silently when its name came from a `${...}` that
+  did not resolve
+- `shlane init` adds `.env*` to `.gitignore`, except `.env.defaults`
 
-## การ mask secret ใน log
+## Masking secrets in the log
 
-`SecretRegistry` เก็บค่าที่ต้องปิดบัง ค่าจะเข้าทะเบียนเมื่อ:
+The `SecretRegistry` holds the values to hide. A value is registered when:
 
-- argument ของ action ที่ schema ระบุ `sensitive: true`
-- ตัวแปร env ที่ชื่อเข้าเงื่อนไข: `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_KEY`, `*_CREDENTIALS`
-- ประกาศเองใน config:
+- it is an action argument whose schema says `sensitive: true`
+- it is an environment variable whose name matches `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+  `*_KEY` or `*_CREDENTIALS`
+- it is declared in the config:
   ```yaml
   secrets:
     - ${env.MY_CUSTOM_VALUE}
   ```
-- plugin ส่ง event `{"type":"secret","value":"..."}` (ดู [09](09-plugins.md))
+- a plugin sent `{"type":"secret","value":"..."}` (see [09](09-plugins.md))
 
-การ mask ต้องทำ **ทุกช่องทาง**: stdout/stderr ของ child process, ข้อความ error, ตารางสรุป, `--json` output, และรายการคำสั่งที่พิมพ์ตอน `--dry-run`
+Masking has to happen on **every path out**: a child process's stdout and stderr, error
+messages, the summary table, `--json` output, and the commands printed by `--dry-run`.
 
-ข้อควรระวัง: ต้อง mask ทั้งค่าดิบ, ค่าที่ base64 แล้ว และค่าที่ url-encoded แล้ว เพราะ tool ปลายทางมักแปลงก่อน log
+One thing to watch: the raw value, its base64 form and its url-encoded form all have to
+be masked, because the tool at the other end usually transforms it before logging it.
 
-## การส่ง secret เข้า subprocess
+## Getting a secret into a subprocess
 
-- **ห้ามใส่ใน command line** — โผล่ใน `ps aux` และใน log ของ CI ที่พิมพ์คำสั่ง
-- ใช้ env ของ process ลูก หรือเขียนลง temp file ที่มี permission `0600` และลบทิ้งด้วย RAII guard (ลบแม้ตอน panic/Ctrl-C)
+- **Never on the command line** — it shows up in `ps aux`, and in the log of any CI that
+  echoes the command.
+- Use the child's environment, or write it to a temporary file with permission `0600`
+  and delete it through an RAII guard, so it goes even on a panic or a Ctrl-C.
 
-## Credential store (ภายหลัง)
+## A credential store, later
 
-สำหรับเครื่อง dev: เก็บใน macOS Keychain / libsecret ผ่าน `keyring` crate เพื่อไม่ต้องมี `.env` วางบนดิสก์ — เป็นงานหลัง 1.0
+On a developer's machine, keep it in the macOS Keychain or libsecret through the
+`keyring` crate, so no `.env` has to sit on disk. This is post-1.0 work.
 
-## Checklist ที่ต้องผ่าน
+## The checklist to pass
 
-- [ ] ไม่มี `env::set_var` เหลือในโค้ด
-- [ ] `shlane env` แสดงค่าทั้งหมดโดย secret เป็น `***`
-- [ ] มี test ที่พิสูจน์ว่า secret ไม่โผล่ใน stdout, stderr, error message และ JSON output
-- [ ] `example/shlane.yaml` เปลี่ยนจาก `API_KEY: "abc123"` เป็นการอ่านจาก env
+- [ ] no `env::set_var` left in the code
+- [ ] `shlane env` shows every value, with secrets as `***`
+- [ ] a test proving a secret reaches neither stdout, stderr, an error message, nor the
+      JSON output
+- [ ] `example/shlane.yaml` reads from the environment instead of holding
+      `API_KEY: "abc123"`

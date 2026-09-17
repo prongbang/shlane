@@ -1,58 +1,59 @@
-# 03 — สเปก `shlane.yaml` v1
+# 03 — The `shlane.yaml` v1 specification
 
-## หลักการ
+## Principles
 
-- ทุก field มี default ที่สมเหตุสมผล — ไฟล์ที่สั้นที่สุดที่ใช้งานได้ต้องสั้นจริง
-- schema ตรวจได้ก่อนรันด้วย `shlane validate`
-- รองรับไฟล์ปัจจุบัน (`example/shlane.yaml`) ต่อไปได้ ไม่ทำ breaking change โดยไม่จำเป็น
+- Every field has a sensible default, so the shortest useful file really is short.
+- The schema can be checked before anything runs, with `shlane validate`.
+- The existing file (`example/shlane.yaml`) keeps working. No breaking change without
+  a reason.
 
-## ตัวอย่างเต็ม
+## The whole thing
 
 ```yaml
-version: 1                      # ใหม่ — ไว้ migrate schema ในอนาคต
-min_shlane: "0.5.0"             # ใหม่ — แทน fastlane_version
+version: 1                      # new — so the schema can move later
+min_shlane: "0.5.0"             # new — in place of fastlane_version
 
 env:
   APP_ENV: production
-env_files:                      # ใหม่ — ดู 10
+env_files:                      # new — see 10
   - .env
   - .env.${SHLANE_PROFILE}
 
-include:                        # ใหม่ — แตกไฟล์ย่อยได้
+include:                        # new — split across files
   - lanes/ios.yaml
   - lanes/android.yaml
 
-script: |-                      # shared Rhai script (มีอยู่แล้ว)
+script: |-                      # the shared Rhai script (already there)
   fn greet(name) { print("Hello, " + name); }
 
-before_all:                     # ใหม่ — ระดับ global
+before_all:                     # new — global
   - run: git rev-parse --short HEAD
 after_all:
   - action: notify_slack
-    with: { text: "เสร็จแล้ว" }
-error:                          # ใหม่ — รันเมื่อ lane ใดก็ตาม fail
+    with: { text: "done" }
+error:                          # new — runs when any lane fails
   - action: notify_slack
-    with: { text: "พังที่ ${error.step}" }
+    with: { text: "failed at ${error.step}" }
 
 lanes:
   beta:
-    description: "build + ขึ้น TestFlight"   # ใหม่ — โชว์ใน `shlane list`
-    platform: ios                            # ใหม่ — จัดกลุ่ม
-    private: false                           # ใหม่
-    params:                                  # ใหม่ — ประกาศพารามิเตอร์
+    description: "build and ship to TestFlight"   # new — shown by `shlane list`
+    platform: ios                                 # new — grouping
+    private: false                                # new
+    params:                                       # new — declared parameters
       target:
-        type: string                         # string | int | bool | enum
+        type: string                              # string | int | bool
         required: true
         values: [staging, production]
-        description: "ปลายทางที่จะ deploy"
+        description: "Where to deploy"
       notes:
         type: string
         default: "no notes"
     steps:
-      - name: "ตรวจ git สะอาด"               # ใหม่ — ชื่อที่อ่านออกใน log
+      - name: "check the tree is clean"      # new — something readable in the log
         action: ensure_git_status_clean
 
-      - id: build                            # ใหม่ — เก็บผลไว้อ้างต่อ
+      - id: build                            # new — keeps what it produced
         action: build_ios
         with:
           scheme: MyApp
@@ -61,81 +62,89 @@ lanes:
       - name: upload
         action: testflight
         with:
-          ipa: ${steps.build.ipa}            # ใหม่ — อ้างผลของ step ก่อนหน้า
-        if: param("target") == "production"   # ใหม่ — เงื่อนไข (Rhai expression)
-        retry: 2                             # ใหม่
-        timeout: 20m                         # ใหม่
+          ipa: ${steps.build.ipa}            # new — what an earlier step produced
+        if: param("target") == "production"  # new — a condition (a Rhai expression)
+        retry: 2                             # new
+        timeout: 20m                         # new
 
-      - run: ./scripts/cleanup.sh            # รูปแบบเดิม ยังใช้ได้
-        workdir: ./ios                       # ใหม่
-        continue_on_error: true              # ใหม่
-        env: { FOO: bar }                    # ใหม่ — env เฉพาะ step
+      - run: ./scripts/cleanup.sh            # the old shape still works
+        workdir: ./ios                       # new
+        continue_on_error: true              # new
+        env: { FOO: bar }                    # new — environment for this step only
 
-      - script: |                            # script เป็น step ได้แล้ว
+      - script: |                            # a script can be a step now
           print("done " + param("target"));
 
-      - lane: notify                         # ใหม่ — เรียก lane อื่น
+      - lane: notify                         # new — call another lane
         with: { channel: "#releases" }
 
   notify:
     private: true
     steps:
       - action: notify_slack
-        with: { channel: ${params.channel} }
+        with: { channel: "${params.channel}" }
 ```
 
-## ชนิดของ step
+## Kinds of step
 
-step หนึ่งตัวต้องมีเพียง key เดียวจาก 4 อย่างนี้:
+A step carries exactly one of these four:
 
-| key | ความหมาย |
+| Key | Meaning |
 |---|---|
-| `run:` | คำสั่ง shell |
-| `action:` | เรียก built-in action หรือ plugin (ดู [06](06-actions-core.md)) |
-| `script:` | Rhai inline |
-| `lane:` | เรียก lane อื่นในไฟล์เดียวกัน |
+| `run:` | a shell command |
+| `action:` | a built-in action or a plugin (see [06](06-actions-core.md)) |
+| `script:` | inline Rhai |
+| `lane:` | another lane in the same file |
 
-field ร่วมของทุก step: `name`, `id`, `if`, `env`, `workdir`, `timeout`, `retry`, `continue_on_error`
+Every step also takes `name`, `id`, `if`, `env`, `workdir`, `timeout`, `retry` and
+`continue_on_error`.
 
 ## Interpolation
 
-ขยายจาก `${key}` ปัจจุบัน (`src/main.rs:65-72`) เป็น namespace:
+Today's `${key}` (`src/main.rs:65-72`) grows namespaces:
 
-| รูปแบบ | มาจาก |
+| Form | Resolves to |
 |---|---|
-| `${params.x}` | พารามิเตอร์ของ lane |
-| `${env.X}` | environment |
-| `${steps.<id>.<field>}` | ผลของ step ก่อนหน้า (`stdout`, `code`, หรือ output เฉพาะของ action) |
-| `${shlane.lane}`, `${shlane.version}` | ข้อมูลของ runtime |
+| `${params.x}` | a lane parameter |
+| `${env.X}` | an environment variable |
+| `${steps.<id>.<field>}` | what an earlier step produced (`stdout`, `code`, or an action's own outputs) |
+| `${shlane.lane}`, `${shlane.version}` | the run itself |
 
-> **หมายเหตุจากการ implement (M1):** `if:` ใช้ Rhai expression (`param("x") == "y"`)
-> ไม่ใช่ `${...}` เพราะกฎการ quote ของ shell ใช้กับ Rhai ไม่ได้ การปล่อยให้ `${...}`
-> แทนค่าลงไปใน expression จะทำให้ quote ผิดโดยไม่มีใครรู้
+> **Noted while implementing this (M1):** `if:` takes a Rhai expression
+> (`param("x") == "y"`) rather than a `${...}` template. Shell quoting rules do not
+> apply inside Rhai, so substituting into an expression would mis-quote it with nothing
+> to notice.
 
-กฎสำคัญ 2 ข้อที่ต่างจากปัจจุบัน:
-1. **อ้างตัวแปรที่ไม่มีจริง = error** ไม่ใช่ปล่อย `${x}` ดิบไปให้ shell (`src/main.rs:69`)
-2. **ค่าที่แทนเข้าไปใน `run:` ต้อง escape** — ปัจจุบันต่อสตริงตรงๆ ทำให้ `target="a; rm -rf /"` รันได้จริง
+Two rules that differ from today:
 
-รองรับ `${key}` แบบเดิม (ไม่มี namespace) ต่อไป โดย resolve ตามลำดับ params → env และเตือน deprecated
+1. **A name that resolves to nothing is an error**, rather than a literal `${x}` being
+   handed to the shell (`src/main.rs:69`).
+2. **A value substituted into `run:` is escaped.** Today it is concatenated, so
+   `target="a; rm -rf /"` actually runs.
 
-## Validation ที่ `shlane validate` ต้องจับได้
+Bare `${key}` keeps working, resolving params then env.
 
-- YAML syntax ผิด (พร้อมเลข บรรทัด)
-- `lane:` อ้างถึง lane ที่ไม่มี / เรียกวนเป็นวงจร
-- `action:` ชื่อไม่มีในทะเบียน
-- `with:` ขาด argument ที่ action บังคับ / มี key เกิน
-- step ที่ไม่มี `run`/`action`/`script`/`lane` หรือมีมากกว่าหนึ่ง
-- `${...}` ที่อ้างถึงสิ่งที่ไม่มีทาง resolve ได้ (เช่น `steps.x` ที่ไม่มี step id นั้น หรืออยู่หลังจุดที่อ้าง)
-- `params.type` กับ `default` ไม่ตรงชนิด
-- `min_shlane` สูงกว่าเวอร์ชันที่ติดตั้ง
+## What `shlane validate` has to catch
 
-## การหาไฟล์ config
+- YAML that does not parse, with the line number
+- `lane:` naming a lane that does not exist, or lanes that call each other in a loop
+- `action:` naming something not in the registry
+- `with:` missing an argument the action requires, or carrying one it does not take
+- a step with none of `run`/`action`/`script`/`lane`, or more than one
+- a `${...}` that cannot resolve — a `steps.x` with no such step id, or one that comes
+  later in the lane than the reference to it
+- a `params.default` that does not match its declared `type`
+- a `min_shlane` higher than the version installed
 
-ปัจจุบันอ่าน `shlane.yaml` ใน cwd อย่างเดียว (`src/main.rs:75`) เปลี่ยนเป็น:
+## Finding the config
 
-1. `--file <path>` ถ้าระบุ
+Today only `shlane.yaml` in the working directory is read (`src/main.rs:75`). Instead:
+
+1. `--file <path>`, if given
 2. `$SHLANE_CONFIG`
-3. ไล่หาขึ้นไปจาก cwd จนถึง root: `shlane.yaml` → `shlane.yml` → `.shlane/shlane.yaml`
-4. ไม่เจอ → error พร้อมแนะนำ `shlane init`
+3. walk up from the working directory to the root, looking for `shlane.yaml`, then
+   `shlane.yml`, then `.shlane/shlane.yaml`
+4. nothing found — an error that suggests `shlane init`
 
-workdir ตั้งต้นของทุก step = โฟลเดอร์ที่มีไฟล์ config ไม่ใช่ cwd (รันจาก subdirectory ไหนก็ได้ผลเหมือนกัน)
+Every step's working directory starts at the directory holding the config, not the
+caller's, so a lane behaves the same wherever it is started.
