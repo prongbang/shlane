@@ -76,6 +76,10 @@ enum Commands {
         /// Print what would run without running it
         #[arg(long)]
         dry_run: bool,
+
+        /// Write results to a file, e.g. junit:reports/shlane.xml (repeatable)
+        #[arg(long, value_name = "FORMAT:PATH")]
+        report: Vec<String>,
     },
 
     /// List the lanes in the config file
@@ -126,7 +130,17 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             name,
             params,
             dry_run,
+            report,
         } => {
+            let reports = report
+                .iter()
+                .map(|spec| crate::report::parse(spec))
+                .collect::<std::result::Result<Vec<_>, String>>()
+                .map_err(|message| ShlaneError::ConfigProblems {
+                    path: PathBuf::from("--report"),
+                    problems: vec![message],
+                })?;
+
             let found = load(file.as_deref(), &base)?;
             let params = runtime::parse_params(params);
             runtime::run_lane(
@@ -136,6 +150,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 params,
                 runtime::Options {
                     dry_run,
+                    reports,
                     verbosity,
                     json,
                     profile,

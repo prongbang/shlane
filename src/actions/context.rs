@@ -29,7 +29,32 @@ impl ActionContext<'_> {
 
     /// Run a command that changes something. Skipped by `--dry-run`.
     pub fn sh(&self, command: &str) -> Result<shell::Outcome> {
-        self.spawn(command, false, true)
+        self.spawn_with(command, false, true, &BTreeMap::new())
+    }
+
+    /// Like [`sh`](Self::sh), with extra environment for this command only.
+    ///
+    /// Used to keep secrets off the command line, where `ps` and CI logs can
+    /// see them.
+    pub fn sh_with_env(
+        &self,
+        command: &str,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<shell::Outcome> {
+        self.spawn_with(command, false, true, extra)
+    }
+
+    /// Like [`require`](Self::require), with extra environment.
+    pub fn require_with_env(
+        &self,
+        command: &str,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<shell::Outcome> {
+        let outcome = self.sh_with_env(command, extra)?;
+        if !outcome.success {
+            return Err(self.failed(command, &outcome));
+        }
+        Ok(outcome)
     }
 
     /// Run a command and fail the action if it does not succeed.
@@ -48,7 +73,7 @@ impl ActionContext<'_> {
     /// happen for real and only changes are skipped. An action whose decisions
     /// depend on a change it just skipped has to handle `dry_run` itself.
     pub fn capture(&self, command: &str) -> Result<String> {
-        let outcome = self.spawn(command, true, false)?;
+        let outcome = self.spawn_with(command, true, false, &BTreeMap::new())?;
         if !outcome.success {
             return Err(self.failed(command, &outcome));
         }
@@ -58,10 +83,16 @@ impl ActionContext<'_> {
     /// Read something that is allowed to fail (no tags yet, not a repository).
     /// Runs even under `--dry-run`, like [`capture`](Self::capture).
     pub fn probe(&self, command: &str) -> Result<shell::Outcome> {
-        self.spawn(command, true, false)
+        self.spawn_with(command, true, false, &BTreeMap::new())
     }
 
-    fn spawn(&self, command: &str, quiet: bool, skip_on_dry_run: bool) -> Result<shell::Outcome> {
+    fn spawn_with(
+        &self,
+        command: &str,
+        quiet: bool,
+        skip_on_dry_run: bool,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<shell::Outcome> {
         if self.dry_run && skip_on_dry_run {
             self.ui.say(&format!("Would run: {command}"));
             return Ok(shell::Outcome {
@@ -75,9 +106,12 @@ impl ActionContext<'_> {
         }
 
         let secrets = self.secrets.borrow().clone();
+        let mut env = self.env.clone();
+        env.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
+
         shell::run(Spawn {
             command,
-            env: self.env,
+            env: &env,
             workdir: &self.workdir,
             timeout: None,
             quiet,

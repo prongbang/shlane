@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M4 — Android
+
+#### Added
+
+- **`gradle`, `build_android`, `test_android`, `sign_android`.** `build_android`
+  assembles an APK or bundle and then finds it, because Gradle does not say where it
+  put things; `test_android` collects the JUnit files it produced; `sign_android`
+  handles a keystore given as a path or as base64, writing the decoded file with
+  `0600` permissions and deleting it afterwards even when the step fails.
+- **`play_store`** uploads to Google Play, signing its own service-account JWT with
+  `ring` (already in the tree via rustls) — no `gcloud`, no extra dependency tree. The
+  edit is committed only after the upload and track update both succeed, so a failure
+  part-way leaves the store untouched.
+- **`firebase_distribution`** wraps the `firebase` CLI. The REST upload returns a
+  long-running operation that has to be polled, and an action nobody can test against
+  the real service is worth less than one that delegates to the tool Google maintains.
+- **`--report <format>:<path>`**, repeatable, writing `junit`, `json` or `md`. Reports
+  are written whether the lane passed or failed, and Markdown is appended so it can be
+  pointed at `$GITHUB_STEP_SUMMARY`.
+
+#### Fixed
+
+- **A gradle property routed through the environment for being sensitive was not
+  masked.** shlane kept the value off the command line and then printed it when gradle
+  echoed it back.
+
+#### Notes
+
+- `play_store`'s request shapes are unit-tested; the round trip against Google is not,
+  and needs a real service account.
+
 ### Milestone M3 — the action system
 
 #### Added

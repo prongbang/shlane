@@ -517,6 +517,7 @@ dependencies = [
  "clap_complete",
  "libc",
  "rhai",
+ "ring",
  "serde",
  "serde_yaml",
  "ureq",

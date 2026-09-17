@@ -1502,3 +1502,202 @@ fn http_request_arguments_are_validated_before_running() {
         .assert_stderr_contains("needs 'url'")
         .assert_stderr_contains("no argument 'urll'");
 }
+
+// ---------------------------------------------------------------------------
+// M4: Android actions and reports
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gradle_actions_are_registered_and_documented() {
+    let sandbox = Sandbox::new("lanes: {}\n");
+
+    sandbox
+        .run(&["action", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("build_android")
+        .assert_stdout_contains("sign_android")
+        .assert_stdout_contains("test_android");
+
+    sandbox
+        .run(&["action", "show", "build_android"])
+        .assert_code(0)
+        .assert_stdout_contains("aab or apk")
+        .assert_stdout_contains("default: release");
+}
+
+#[test]
+fn build_android_runs_the_right_gradle_task() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  build:
+    steps:
+      - action: build_android
+        with:
+          format: apk
+          flavor: prod
+          build_type: release
+"#,
+    );
+    // A stand-in wrapper: it records how it was called and produces an APK
+    // where gradle would.
+    sandbox.write(
+        "gradlew",
+        "#!/bin/sh\necho \"called with: $@\"\nmkdir -p build/outputs/apk/prod/release\necho apk > build/outputs/apk/prod/release/app-prod-release.apk\n",
+    );
+    let status = Command::new("chmod")
+        .args(["+x", "gradlew"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("chmod should run");
+    assert!(status.success());
+
+    sandbox
+        .run(&["run", "build"])
+        .assert_code(0)
+        .assert_stdout_contains("called with: assembleProdRelease")
+        .assert_stdout_contains("app-prod-release.apk");
+}
+
+#[test]
+fn build_android_says_so_when_no_artifact_appears() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  build:\n    steps:\n      - action: build_android\n        with:\n          format: aab\n",
+    );
+    sandbox.write("gradlew", "#!/bin/sh\nexit 0\n");
+    Command::new("chmod")
+        .args(["+x", "gradlew"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("chmod should run");
+
+    sandbox
+        .run(&["run", "build"])
+        .assert_code(1)
+        .assert_stderr_contains("no .aab was found");
+}
+
+#[test]
+fn gradle_keeps_sensitive_properties_off_the_command_line() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  publish:
+    steps:
+      - action: gradle
+        with:
+          task: publish
+          properties: |
+            SIGNING_PASSWORD=hunter2000
+            flavor=prod
+"#,
+    );
+    sandbox.write(
+        "gradlew",
+        "#!/bin/sh\necho \"args: $@\"\necho \"env: $ORG_GRADLE_PROJECT_SIGNING_PASSWORD\"\n",
+    );
+    Command::new("chmod")
+        .args(["+x", "gradlew"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("chmod should run");
+
+    let run = sandbox.run(&["run", "publish"]);
+    // The shell removes the quoting before gradle sees the argument.
+    run.assert_code(0).assert_stdout_contains("-Pflavor=prod");
+
+    // It reached gradle through the environment, and is masked on the way back.
+    assert!(
+        !run.stdout.contains("hunter2000"),
+        "the password leaked:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("env: ***"),
+        "the password did not reach gradle:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn sign_android_needs_a_keystore() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  sign:
+    steps:
+      - action: sign_android
+        with:
+          input: app.apk
+          keystore_password: secret123
+          key_alias: upload
+"#,
+    );
+
+    sandbox
+        .run(&["run", "sign"])
+        .assert_code(1)
+        .assert_stderr_contains("keystore or keystore_base64");
+}
+
+#[test]
+fn a_junit_report_is_written_for_a_failed_run() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - run: "true"
+        name: first
+      - run: exit 1
+        name: second
+      - run: "true"
+        name: never
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a", "--report", "junit:reports/shlane.xml"])
+        .assert_code(1);
+
+    let xml = fs::read_to_string(sandbox.path().join("reports/shlane.xml"))
+        .expect("the report should exist even though the lane failed");
+    assert!(xml.contains("tests=\"2\""), "{xml}");
+    assert!(xml.contains("failures=\"1\""), "{xml}");
+    assert!(xml.contains("name=\"second\""), "{xml}");
+    assert!(xml.contains("<failure"), "{xml}");
+}
+
+#[test]
+fn json_and_markdown_reports_are_written() {
+    let sandbox =
+        Sandbox::new("lanes:\n  a:\n    steps:\n      - run: \"true\"\n        name: only\n");
+
+    sandbox
+        .run(&[
+            "run",
+            "a",
+            "--report",
+            "json:out.json",
+            "--report",
+            "md:out.md",
+        ])
+        .assert_code(0);
+
+    let json = fs::read_to_string(sandbox.path().join("out.json")).expect("json written");
+    assert!(json.contains("\"result\": \"ok\""), "{json}");
+    assert!(json.contains("\"step\": \"only\""), "{json}");
+
+    let md = fs::read_to_string(sandbox.path().join("out.md")).expect("markdown written");
+    assert!(md.contains("| only |"), "{md}");
+}
+
+#[test]
+fn a_bad_report_specification_is_rejected() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - run: \"true\"\n");
+
+    sandbox
+        .run(&["run", "a", "--report", "toml:out.toml"])
+        .assert_code(2)
+        .assert_stderr_contains("unknown report format");
+}

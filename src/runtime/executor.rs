@@ -23,6 +23,8 @@ const MAX_DEPTH: usize = 16;
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub dry_run: bool,
+    /// Where to write machine-readable results.
+    pub reports: Vec<crate::report::Target>,
     pub verbosity: Verbosity,
     pub json: bool,
     /// Selects `.env.<profile>` (`docs/plan/10-secrets-and-env.md`).
@@ -100,9 +102,25 @@ pub fn run_lane(
 
     signals::install();
 
+    let reports = options.reports.clone();
     let mut runner = Runner::new(config, root, options)?;
     let outcome = runner.run(lane_name, params);
     runner.print_summary();
+
+    // Written whether the lane passed or failed: a report that only appears on
+    // success is no use to the CI job that needs to explain the failure.
+    for target in &reports {
+        let steps = runner.step_reports();
+        if let Err(err) = crate::report::write(target, lane_name, &steps, outcome.is_err()) {
+            runner
+                .ui
+                .warn(&format!("could not write {}: {err}", target.path.display()));
+        } else {
+            runner
+                .ui
+                .detail(&format!("Wrote {}", target.path.display()));
+        }
+    }
 
     if outcome.is_ok() {
         runner
@@ -645,6 +663,23 @@ impl<'a> Runner<'a> {
             status,
             duration,
         });
+    }
+
+    /// The run's steps, for `--report`.
+    fn step_reports(&self) -> Vec<crate::report::StepReport> {
+        self.records
+            .iter()
+            .map(|record| crate::report::StepReport {
+                lane: record.lane.clone(),
+                step: record.label.clone(),
+                status: match record.status {
+                    Status::Ok => crate::report::Status::Ok,
+                    Status::Skipped => crate::report::Status::Skipped,
+                    Status::Failed => crate::report::Status::Failed,
+                },
+                duration: record.duration,
+            })
+            .collect()
     }
 
     fn print_summary(&self) {

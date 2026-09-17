@@ -56,7 +56,7 @@
 > เปลี่ยนจากแผน: ใช้ `ureq` แทน `reqwest` (CLI แบบ blocking ไม่ต้องแบก async runtime)
 > ผลคือ MSRV ขยับ 1.74 → 1.85 และ binary 3.6 → 5.4 MB
 
-## M4 — Android
+## M4 — Android ✅ เสร็จแล้ว
 
 - `gradle`, `build_android`, `test_android`, `sign_android` ([08](08-actions-android.md))
 - `play_store` (Publishing API v3)
@@ -64,6 +64,16 @@
 - report JUnit ([11](11-ci-integration.md))
 
 **เสร็จเมื่อ:** โปรเจกต์ Android จริงลบ `Gemfile` ทิ้งได้
+
+> ทำแล้ว: `gradle`, `build_android`, `test_android`, `sign_android`, `play_store`,
+> `firebase_distribution` และ `--report junit|json|md`
+>
+> ต่างจากแผน: `firebase_distribution` ใช้วิธี wrap `firebase` CLI (ทางเลือก 1 ในเอกสาร)
+> ไม่ใช่ REST เพราะ upload endpoint คืน long-running operation ที่ต้อง poll และเทสกับ
+> ของจริงไม่ได้ — REST ยังเป็นงานในอนาคต
+>
+> ยังไม่ได้ verify: `play_store` เทสเฉพาะรูปร่าง request (unit test) การคุยกับ Google
+> จริงต้องมี service account — เป็นงาน e2e
 
 ## M5 — iOS
 

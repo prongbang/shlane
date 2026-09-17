@@ -20,21 +20,28 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-struct Response {
-    status: u16,
-    body: String,
+pub struct Response {
+    pub status: u16,
+    pub body: String,
+}
+
+/// What to send, if anything.
+pub enum Payload<'a> {
+    Empty,
+    Text(&'a str),
+    Bytes(&'a [u8]),
 }
 
 /// Send a request, retrying transport failures and 5xx.
 ///
 /// CI networks fail often enough that one attempt is not enough
 /// (`docs/plan/11-ci-integration.md`).
-fn send(
+pub fn send(
     ctx: &ActionContext<'_>,
     method: &str,
     url: &str,
     headers: &[(String, String)],
-    body: Option<&str>,
+    body: Payload<'_>,
 ) -> std::result::Result<Response, String> {
     let agent = agent();
     let mut last = String::new();
@@ -52,7 +59,11 @@ fn send(
                 for (name, value) in headers {
                     request = request.header(name, value);
                 }
-                request.send(body.unwrap_or(""))
+                match body {
+                    Payload::Empty => request.send(""),
+                    Payload::Text(text) => request.send(text),
+                    Payload::Bytes(bytes) => request.send(bytes),
+                }
             }
             "GET" | "DELETE" | "HEAD" => {
                 let mut request = match method {
@@ -140,7 +151,11 @@ impl Action for HttpRequest {
         }
 
         ctx.ui.say(&format!("{method} {url}"));
-        let response = send(ctx, &method, url, &headers, args.get("body")).map_err(|message| {
+        let payload = match args.get("body") {
+            Some(body) => Payload::Text(body),
+            None => Payload::Empty,
+        };
+        let response = send(ctx, &method, url, &headers, payload).map_err(|message| {
             ctx.error(self.name(), format!("{method} {url} failed: {message}"))
         })?;
 
@@ -225,7 +240,7 @@ impl Action for NotifySlack {
             "POST",
             webhook,
             &[("Content-Type".to_string(), "application/json".to_string())],
-            Some(&payload),
+            Payload::Text(&payload),
         )
         .map_err(|message| ctx.error(self.name(), format!("could not reach Slack: {message}")))?;
 
@@ -244,7 +259,7 @@ impl Action for NotifySlack {
     }
 }
 
-fn escape(text: &str) -> String {
+pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {

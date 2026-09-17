@@ -66,6 +66,7 @@ shlane run deploy target=staging
 | `--env <PROFILE>` | Select `.env.<profile>` |
 | `-v, --verbose` / `-q, --quiet` | More detail / errors and command output only |
 | `--json` | One JSON event per line, for other tools to read |
+| `--report <fmt>:<path>` | Write results as `junit`, `json` or `md` (repeatable) |
 
 `shlane` looks for `shlane.yaml` (or `shlane.yml`) in the current directory and then
 each parent, so it can be run from anywhere inside a project. `$SHLANE_CONFIG`
@@ -213,6 +214,12 @@ lanes:
 | `read_version` / `bump_version` | Cargo.toml, package.json, pubspec.yaml or VERSION |
 | `http_request` | Any HTTP call, with retries |
 | `notify_slack` | Post to an incoming webhook |
+| `gradle` | Run a Gradle task |
+| `build_android` | Assemble an APK or AAB and report where it landed |
+| `test_android` | Run the unit tests and collect their reports |
+| `sign_android` | Sign with a keystore, from a file or base64 |
+| `play_store` | Upload to Google Play |
+| `firebase_distribution` | Distribute through Firebase App Distribution |
 
 Scripts can call the same actions:
 
@@ -226,9 +233,41 @@ Under `--dry-run`, an action's *reads* still run — `git status`, `git describe
 a version file — while its *changes* are only described. A dry run that invents results
 reports problems that do not exist and hides the ones that do.
 
-Platform actions (`build_ios`, `gradle`, `play_store`, `testflight`) are M4 and M5;
-see [`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md) and
-[`docs/plan/08-actions-android.md`](docs/plan/08-actions-android.md).
+### Android
+
+```yaml
+lanes:
+  beta:
+    platform: android
+    steps:
+      - action: test_android
+      - id: build
+        action: build_android
+        with:
+          format: aab
+          flavor: prod
+          properties: |
+            KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}
+      - action: play_store
+        with:
+          package_name: com.example.app
+          aab: ${steps.build.aab}
+          track: internal
+          service_account_json: ${PLAY_SERVICE_ACCOUNT}
+```
+
+A gradle property whose name looks sensitive is passed through the environment as
+`ORG_GRADLE_PROJECT_<NAME>` instead of `-P<name>=`, because a command line is visible
+in `ps` and in most CI logs — and its value is masked on the way back.
+
+`play_store` signs its own requests with the service account (no `gcloud` needed). Its
+request shapes are unit-tested, but the round trip against Google is not: that needs a
+real account, and is e2e work
+([`docs/plan/13-testing-and-quality.md`](docs/plan/13-testing-and-quality.md)).
+`firebase_distribution` wraps the `firebase` CLI, which must be installed.
+
+iOS actions (`build_ios`, `test_ios`, `testflight`) are M5; see
+[`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md).
 
 ## Environment and secrets
 
@@ -318,6 +357,17 @@ script: |
 `action(name, #{ ... })` runs a built-in and returns its outputs as a map.
 `call_lane()` is not available: calling a lane from a script means re-entering the
 executor, so use a `lane:` step instead.
+
+## Reports
+
+```sh
+shlane run beta --report junit:reports/shlane.xml --report md:$GITHUB_STEP_SUMMARY
+```
+
+Every step becomes a test case, so a CI that understands JUnit shows which step failed.
+The report is written whether the lane passed or failed — one that only appears on
+success is no use to the job that has to explain the failure. A Markdown report is
+appended, so it can be pointed at GitHub's step summary.
 
 ## Exit codes
 
