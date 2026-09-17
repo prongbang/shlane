@@ -43,7 +43,7 @@ shlane run beta
 - [Actions](#actions): [core](#core-actions), [Android](#android), [iOS](#ios), [signing](#code-signing)
 - [Environment and secrets](#environment-and-secrets) · [Scripting](#scripting)
 - [Plugins](#plugins) · [Migrating from fastlane](#migrating-from-fastlane)
-- [On CI](#on-ci) · [Reports](#reports) · [Exit codes](#exit-codes)
+- [On CI](#on-ci) · [Reports](#reports) · [Exit codes](#exit-codes) · [Benchmark](#benchmark)
 
 ## Install
 
@@ -576,8 +576,9 @@ block is flattened: those steps now run unconditionally.
     args: --report junit:reports/shlane.xml
 ```
 
-The action installs shlane — about a second, against `bundle install`'s thirty to a
-hundred and twenty — and runs the lane.
+The action installs shlane — a 2.6 MB download, against the 48 seconds a cold
+`bundle install` of fastlane took when [measured](benchmarks/README.md) — and runs the
+lane.
 
 shlane recognises GitHub Actions, GitLab, Bitrise, CircleCI, Jenkins, Buildkite, Travis,
 TeamCity and Azure Pipelines. On GitHub a failure is also emitted as an `::error`
@@ -598,6 +599,28 @@ Every step becomes a test case, so a CI that understands JUnit shows which step 
 Reports are written whether the lane passed or failed — one that only appears on success
 is no use to the job that has to explain the failure. Markdown is appended, so it can
 point at GitHub's step summary.
+
+## Benchmark
+
+Both tools were given the same three lanes and timed on the same machine — the harness
+and the full numbers are in [`benchmarks/`](benchmarks/README.md). Medians of 10 runs,
+fastlane 2.240.1 on Ruby 3.3.6:
+
+| | fastlane | shlane |
+|---|---|---|
+| Start up and list the lanes | 1.274 s | 0.002 s |
+| A lane with one no-op step | 1.278 s | 0.004 s |
+| A lane with 20 shell steps | 1.477 s | 0.039 s |
+| Peak memory | 78 MB | 12 MB |
+| Cold `bundle install` vs unpacking the binary | 48.8 s | 0.06 s |
+
+Nearly all of fastlane's cost is fixed — about 1.28 s of Ruby start-up per invocation,
+then ~10 ms per step, against shlane's ~4 ms and ~1.8 ms. It is the fixed second that a
+CI job pays every time.
+
+None of this touches Xcode or Gradle. On a real release the build dominates and takes
+the same minutes either way; what is measured here is only the overhead each tool adds
+on top of it.
 
 ## Exit codes
 
