@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 /// Validate a config, collecting every problem rather than stopping at the first.
-pub fn check(config: &Config) -> Vec<String> {
+pub fn check(config: &Config, registry: &crate::actions::Registry) -> Vec<String> {
     let mut problems = Vec::new();
 
     if let Some(version) = config.version {
@@ -59,7 +59,7 @@ pub fn check(config: &Config) -> Vec<String> {
                     problems.push(format!("lane '{lane_name}': duplicate step id '{id}'"));
                 }
             }
-            check_step(config, lane_name, step, &mut problems);
+            check_step(config, registry, lane_name, step, &mut problems);
         }
     }
 
@@ -69,7 +69,7 @@ pub fn check(config: &Config) -> Vec<String> {
         ("error", &config.error),
     ] {
         for step in steps {
-            check_step(config, label, step, &mut problems);
+            check_step(config, registry, label, step, &mut problems);
         }
     }
 
@@ -84,7 +84,13 @@ fn lane_steps(lane: &super::model::Lane) -> impl Iterator<Item = &Step> {
         .chain(lane.after.iter())
 }
 
-fn check_step(config: &Config, owner: &str, step: &Step, problems: &mut Vec<String>) {
+fn check_step(
+    config: &Config,
+    registry: &crate::actions::Registry,
+    owner: &str,
+    step: &Step,
+    problems: &mut Vec<String>,
+) {
     match &step.kind {
         StepKind::Lane { name, .. } => {
             if !config.lanes.contains_key(name) {
@@ -96,15 +102,15 @@ fn check_step(config: &Config, owner: &str, step: &Step, problems: &mut Vec<Stri
                 problems.push(message);
             }
         }
-        StepKind::Action { name, with } => match crate::actions::find(name) {
+        StepKind::Action { name, with } => match registry.find(name) {
             Some(action) => {
-                for problem in crate::actions::check_args(action.as_ref(), with) {
+                for problem in crate::actions::check_args(action, with) {
                     problems.push(format!("'{owner}': {problem}"));
                 }
             }
             None => {
                 let mut message = format!("'{owner}' uses action '{name}', which does not exist");
-                let known = crate::actions::names();
+                let known = registry.names();
                 if !known.is_empty() {
                     let _ = write!(message, " (try: {})", known.join(", "));
                 }
@@ -217,6 +223,10 @@ mod tests {
 
     fn config(yaml: &str) -> Config {
         crate::config::loader::parse(yaml, Path::new("shlane.yaml")).expect("should parse")
+    }
+
+    fn check(config: &Config) -> Vec<String> {
+        super::check(config, &crate::actions::Registry::builtins())
     }
 
     #[test]

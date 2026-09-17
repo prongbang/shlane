@@ -57,6 +57,7 @@ struct Record {
 
 pub struct Runner<'a> {
     config: &'a Config,
+    registry: Rc<crate::actions::Registry>,
     root: PathBuf,
     options: Options,
     frame: SharedFrame,
@@ -77,7 +78,11 @@ pub fn run_lane(
     params: BTreeMap<String, String>,
     options: Options,
 ) -> Result<()> {
-    let problems = validate::check(config);
+    let registry = Rc::new(crate::actions::Registry::builtins().with_plugins(
+        crate::plugin::actions(crate::plugin::load_all(config, root)?),
+    ));
+
+    let problems = validate::check(config, &registry);
     if !problems.is_empty() {
         return Err(ShlaneError::ConfigProblems {
             path: root.join("shlane.yaml"),
@@ -103,7 +108,7 @@ pub fn run_lane(
     signals::install();
 
     let reports = options.reports.clone();
-    let mut runner = Runner::new(config, root, options)?;
+    let mut runner = Runner::new(config, root, options, registry)?;
     let outcome = runner.run(lane_name, params);
     runner.print_summary();
 
@@ -142,9 +147,19 @@ pub fn run_lane(
 }
 
 impl<'a> Runner<'a> {
-    fn new(config: &'a Config, root: &Path, options: Options) -> Result<Self> {
-        let mut registry = Secrets::new();
-        let env = environment::build(config, root, options.profile.as_deref(), &mut registry)?;
+    fn new(
+        config: &'a Config,
+        root: &Path,
+        options: Options,
+        registry: Rc<crate::actions::Registry>,
+    ) -> Result<Self> {
+        let mut secret_registry = Secrets::new();
+        let env = environment::build(
+            config,
+            root,
+            options.profile.as_deref(),
+            &mut secret_registry,
+        )?;
 
         // Values the config explicitly marks secret, once the environment they
         // refer to is known.
@@ -157,11 +172,11 @@ impl<'a> Runner<'a> {
                 outputs: &empty,
             };
             if let Ok(value) = interpolate_plain(pattern, &vars) {
-                registry.add(&value);
+                secret_registry.add(&value);
             }
         }
 
-        let secrets: SharedSecrets = Rc::new(RefCell::new(registry));
+        let secrets: SharedSecrets = Rc::new(RefCell::new(secret_registry));
         let ui = Rc::new(Ui::new(options.verbosity, options.json, secrets.clone()));
 
         let frame: SharedFrame = Rc::new(RefCell::new(Frame {
@@ -178,10 +193,12 @@ impl<'a> Runner<'a> {
             outputs: outputs.clone(),
             secrets: secrets.clone(),
             ui: ui.clone(),
+            registry: registry.clone(),
         });
 
         Ok(Self {
             config,
+            registry,
             root: root.to_path_buf(),
             options,
             frame,
@@ -447,23 +464,21 @@ impl<'a> Runner<'a> {
         name: &str,
         with: &BTreeMap<String, String>,
     ) -> Result<()> {
-        let Some(action) = crate::actions::find(name) else {
+        let registry = self.registry.clone();
+        let Some(action) = registry.find(name) else {
             return Err(ShlaneError::Action {
                 action: name.to_string(),
-                message: format!(
-                    "no such action (try: {})",
-                    crate::actions::names().join(", ")
-                ),
+                message: format!("no such action (try: {})", registry.names().join(", ")),
             });
         };
 
         let provided = self.interpolate_map(with)?;
-        let args = crate::actions::with_defaults(action.as_ref(), &provided);
+        let args = crate::actions::with_defaults(action, &provided);
 
         // Arguments the action declares as sensitive are hidden from here on.
         for spec in action.schema() {
             if spec.sensitive {
-                if let Some(value) = args.get(spec.name) {
+                if let Some(value) = args.get(&spec.name) {
                     self.secrets.borrow_mut().add(value);
                 }
             }

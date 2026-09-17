@@ -1822,3 +1822,324 @@ lanes:
         "the keychain password leaked:\n{everything}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// M6: plugins
+// ---------------------------------------------------------------------------
+
+/// Write a plugin that speaks the protocol, in the language every machine has.
+fn write_plugin(sandbox: &Sandbox, dir: &str, extra_arg: Option<&str>) {
+    let extra = extra_arg
+        .map(|name| format!("      - name: {name}\n"))
+        .unwrap_or_default();
+
+    sandbox.write(
+        &format!("{dir}/shlane-plugin.yaml"),
+        &format!(
+            "name: line-notify\nversion: 0.2.0\nprotocol: 1\nexecutable: notify.sh\nactions:\n  - name: notify_line\n    description: Send a LINE message\n    args:\n      - name: token\n        description: Channel token\n        required: true\n        sensitive: true\n      - name: message\n        description: What to send\n{extra}"
+        ),
+    );
+
+    sandbox.write(
+        &format!("{dir}/notify.sh"),
+        r#"#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"op":"describe"'*)
+    printf '{"type":"describe","description":"Send a LINE message","args":[{"name":"token","description":"Channel token","required":true,"sensitive":true},{"name":"message","description":"What to send"}]}\n'
+    exit 0
+    ;;
+esac
+case "$request" in
+  *'"message":"fail"'*)
+    printf '{"type":"result","ok":false,"message":"the channel rejected it"}\n'
+    exit 1
+    ;;
+esac
+printf '{"type":"secret","value":"runtime-token-98765"}\n'
+printf '{"type":"log","level":"info","message":"sending with runtime-token-98765"}\n'
+printf '{"type":"result","ok":true,"outputs":{"id":"msg-1"}}\n'
+"#,
+    );
+
+    Command::new("chmod")
+        .args(["+x", &format!("{dir}/notify.sh")])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("chmod should run");
+}
+
+const PLUGIN_CONFIG: &str = r#"
+plugins:
+  - name: line-notify
+    path: ./tools/line-notify
+lanes:
+  notify:
+    steps:
+      - id: sent
+        action: notify_line
+        with:
+          token: super-secret-channel-token
+          message: hello
+      - run: echo "message id ${steps.sent.id}"
+"#;
+
+#[test]
+fn a_plugin_action_runs_and_reports_its_outputs() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    let run = sandbox.run(&["run", "notify"]);
+    run.assert_code(0)
+        .assert_stdout_contains("message id msg-1");
+
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    assert!(
+        !everything.contains("super-secret-channel-token"),
+        "an argument the manifest marks sensitive leaked:\n{everything}"
+    );
+    assert!(
+        !everything.contains("runtime-token-98765"),
+        "a secret the plugin declared at runtime leaked:\n{everything}"
+    );
+}
+
+#[test]
+fn plugin_actions_are_listed_and_validated_like_built_ins() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    sandbox
+        .run(&["action", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("notify_line")
+        .assert_stdout_contains("Send a LINE message");
+
+    sandbox
+        .run(&["action", "show", "notify_line"])
+        .assert_code(0)
+        .assert_stdout_contains("Channel token")
+        .assert_stdout_contains("masked in output");
+
+    sandbox.run(&["validate"]).assert_code(0);
+}
+
+#[test]
+fn a_plugin_step_with_a_misspelled_argument_fails_validation() {
+    let sandbox = Sandbox::new(
+        r#"
+plugins:
+  - name: line-notify
+    path: ./tools/line-notify
+lanes:
+  notify:
+    steps:
+      - action: notify_line
+        with:
+          mesage: hello
+"#,
+    );
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("needs 'token'")
+        .assert_stderr_contains("no argument 'mesage'");
+}
+
+#[test]
+fn a_failing_plugin_fails_the_lane_with_its_own_message() {
+    let sandbox = Sandbox::new(
+        r#"
+plugins:
+  - name: line-notify
+    path: ./tools/line-notify
+lanes:
+  notify:
+    steps:
+      - action: notify_line
+        with:
+          token: t
+          message: fail
+"#,
+    );
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    sandbox
+        .run(&["run", "notify"])
+        .assert_code(1)
+        .assert_stderr_contains("the channel rejected it");
+}
+
+#[test]
+fn plugin_list_and_lock_record_the_checksum() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    sandbox
+        .run(&["plugin", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("line-notify 0.2.0")
+        .assert_stdout_contains("notify_line")
+        .assert_stdout_contains("shlane plugin lock");
+
+    sandbox
+        .run(&["plugin", "lock"])
+        .assert_code(0)
+        .assert_stdout_contains("1 plugin(s)");
+
+    let lock = fs::read_to_string(sandbox.path().join("shlane-plugins.lock"))
+        .expect("the lockfile should exist");
+    assert!(lock.contains("line-notify sha256:"), "{lock}");
+
+    sandbox
+        .run(&["plugin", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("locked    yes");
+}
+
+#[test]
+fn a_plugin_that_changed_after_being_locked_is_refused() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    sandbox.run(&["plugin", "lock"]).assert_code(0);
+
+    // Someone edits the executable after the lockfile was written.
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh\nprintf '{\"type\":\"result\",\"ok\":true}\\n'\n",
+    );
+
+    sandbox
+        .run(&["run", "notify"])
+        .assert_code(2)
+        .assert_stderr_contains("does not match the lockfile");
+}
+
+#[test]
+fn plugin_verify_catches_a_manifest_that_drifted() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(0)
+        .assert_stdout_contains("agree with their manifests");
+
+    // The manifest gains an argument the executable knows nothing about.
+    write_plugin(&sandbox, "tools/line-notify", Some("sticker"));
+
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("the plugin does not report it");
+}
+
+#[test]
+fn a_plugin_without_a_path_says_what_to_do() {
+    let sandbox = Sandbox::new(
+        "plugins:\n  - name: line-notify\n    source: github:someone/shlane-line-notify@v1\nlanes:\n  a: {}\n",
+    );
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("not implemented yet")
+        .assert_stderr_contains("github:someone/shlane-line-notify@v1");
+}
+
+#[test]
+fn a_plugin_speaking_another_protocol_is_refused() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    sandbox.write(
+        "tools/line-notify/shlane-plugin.yaml",
+        "name: line-notify\nprotocol: 99\nexecutable: notify.sh\nactions: []\n",
+    );
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("speaks protocol 99");
+}
+
+// ---------------------------------------------------------------------------
+// M6: migrating from fastlane
+// ---------------------------------------------------------------------------
+
+const FASTFILE: &str = r#"
+default_platform(:ios)
+
+platform :ios do
+  desc "Push a new beta build to TestFlight"
+  lane :beta do |options|
+    ensure_git_status_clean
+    increment_build_number
+    gym(scheme: "MyApp", export_method: "app-store")
+    pilot
+    slack(message: "Shipped #{options[:version]}", slack_url: ENV["SLACK_URL"])
+  end
+
+  lane :release do
+    match(type: "appstore")
+    sh "echo done"
+  end
+end
+"#;
+
+#[test]
+fn migrate_converts_a_fastfile_into_a_config_shlane_can_read() {
+    let sandbox = Sandbox::empty();
+    sandbox.write("fastlane/Fastfile", FASTFILE);
+
+    let run = sandbox.run(&["migrate"]);
+    run.assert_code(0)
+        .assert_stdout_contains("2 lane(s)")
+        .assert_stdout_contains("What needs a person")
+        .assert_stdout_contains("match");
+
+    let yaml = fs::read_to_string(sandbox.path().join("shlane.yaml")).expect("written");
+    assert!(yaml.contains("  beta:"), "{yaml}");
+    assert!(yaml.contains("action: build_ios"), "{yaml}");
+    assert!(yaml.contains("action: testflight"), "{yaml}");
+    assert!(yaml.contains("webhook: \"${SLACK_URL}\""), "{yaml}");
+    assert!(yaml.contains("# TODO: migrate by hand: match"), "{yaml}");
+
+    // The point of the exercise: what it wrote is a config shlane accepts.
+    sandbox
+        .run(&["validate"])
+        .assert_code(0)
+        .assert_stdout_contains("is valid");
+
+    sandbox
+        .run(&["list"])
+        .assert_code(0)
+        .assert_stdout_contains("Push a new beta build to TestFlight");
+}
+
+#[test]
+fn migrate_refuses_to_clobber_an_existing_config() {
+    let sandbox = Sandbox::new("lanes:\n  keep:\n    steps:\n      - run: \"true\"\n");
+    sandbox.write("fastlane/Fastfile", FASTFILE);
+
+    sandbox
+        .run(&["migrate"])
+        .assert_code(2)
+        .assert_stderr_contains("already exists");
+
+    sandbox
+        .run(&["migrate", "--out", "converted.yaml"])
+        .assert_code(0);
+    assert!(sandbox.path().join("converted.yaml").is_file());
+}
+
+#[test]
+fn migrate_says_when_there_is_no_fastfile() {
+    let sandbox = Sandbox::empty();
+
+    sandbox
+        .run(&["migrate"])
+        .assert_code(3)
+        .assert_stderr_contains("no config file found");
+}

@@ -28,6 +28,9 @@ pub struct Config {
     /// Values to hide wherever they appear in the output.
     #[serde(default)]
     pub secrets: Vec<String>,
+    /// Plugins to load (`docs/plan/09-plugins.md`).
+    #[serde(default)]
+    pub plugins: Vec<PluginRef>,
     /// Rhai source evaluated once before a lane runs.
     pub script: Option<String>,
     /// Steps run before any lane's own steps.
@@ -57,6 +60,16 @@ impl Config {
             .map(|(name, _)| name.clone())
             .collect()
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRef {
+    pub name: String,
+    /// Directory holding the plugin's manifest.
+    pub path: Option<String>,
+    /// Reserved for `github:owner/repo@tag`, which is not implemented yet.
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

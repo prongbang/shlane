@@ -215,7 +215,8 @@ mod tests {
             let text = template(project);
             let config = crate::config::loader::parse(&text, Path::new("shlane.yaml"))
                 .unwrap_or_else(|err| panic!("{project:?} template should parse: {err}"));
-            let problems = crate::config::validate::check(&config);
+            let problems =
+                crate::config::validate::check(&config, &crate::actions::Registry::builtins());
             assert!(problems.is_empty(), "{project:?}: {problems:?}");
             assert!(!config.lanes.is_empty(), "{project:?} has no lanes");
         }

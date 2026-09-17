@@ -96,12 +96,21 @@
 > **ยังไม่ได้ verify:** ทุก action ต้องมี macOS + Xcode — unit test คลุมการประกอบคำสั่ง,
 > plist และ JWT claims แต่ไม่ได้ทดสอบกับของจริง
 
-## M6 — ระบบนิเวศ
+## M6 — ระบบนิเวศ ⚠️ เสร็จบางส่วน
 
 - plugin แบบ external executable + Rhai module ([09](09-plugins.md))
 - `shlane migrate` + `docs/migration.md` ([12](12-migration-from-fastlane.md))
 - `codesign_sync` ที่อ่าน match repo เดิมได้ (ทางเลือก A)
 - GitHub Action wrapper + Homebrew tap ([14](14-release-and-distribution.md))
+
+> ทำแล้ว: plugin แบบ external executable (`path:` เท่านั้น) + lockfile SHA-256 +
+> `plugin list/lock/verify`, และ `shlane migrate`
+>
+> **ยังไม่ทำ:**
+> - ดึง plugin จาก git host (`source: github:...`) — ต้องมี installer ที่ตรวจ checksum ก่อน
+> - Rhai module plugin (ทางเลือก B)
+> - `codesign_sync` ที่อ่าน match repo เดิม — ยังเป็น blocker ของทีมที่ใช้ match
+> - GitHub Action wrapper + Homebrew tap
 
 ## M7 — 1.0
 

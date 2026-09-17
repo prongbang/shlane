@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M6 — plugins and migration
+
+#### Added
+
+- **Plugins.** A directory with a `shlane-plugin.yaml` manifest and an executable that
+  speaks a small JSON protocol. Its actions are validated, listed and documented
+  exactly like the built-ins, arguments the manifest marks sensitive are masked, and a
+  plugin can declare a secret it obtained at runtime.
+- **`shlane plugin list|lock|verify`.** `lock` records each executable's SHA-256 in
+  `shlane-plugins.lock` and a plugin that no longer matches is refused: a plugin runs
+  with the same permissions as shlane, on the machine holding the signing keys.
+  `verify` asks each plugin to describe itself and reports where its manifest has
+  drifted — a `sensitive` flag that only the manifest carries is the one that leaks.
+- **`shlane migrate`** converts a Fastfile: platforms, lanes, `desc`, `sh` and the
+  actions in the mapping table, with `ENV["X"]` and `options[:x]` becoming `${X}` and
+  `${x}`. Required arguments fastlane took from the Appfile are filled with visible
+  `TODO-` placeholders, so the result validates and every gap is in one list instead of
+  appearing one failed run at a time. Anything it does not understand is carried across
+  as a `# TODO` comment rather than dropped, and it says so loudly when a conditional
+  block is flattened — those steps now run unconditionally.
+
+#### Changed
+
+- Actions are looked up through a registry built per run, since which actions exist now
+  depends on the config. `ArgSpec` holds owned strings so a plugin can describe itself.
+
+#### Notes
+
+- Plugins load from local paths only; fetching from a git host waits for the
+  lockfile-verified installer in `docs/plan/09-plugins.md`.
+
 ### Milestone M5 — iOS
 
 #### Added

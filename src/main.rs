@@ -9,6 +9,8 @@ mod actions;
 mod cli;
 mod config;
 mod error;
+mod migrate;
+mod plugin;
 mod report;
 mod runtime;
 mod script;

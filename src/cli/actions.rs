@@ -1,28 +1,27 @@
 //! `shlane action list` and `shlane action show`.
 
-use crate::actions;
+use crate::actions::Registry;
 use crate::error::{Result, ShlaneError};
 
-pub fn list() {
-    let all = actions::all();
-    let width = all
+pub fn list(registry: &Registry) {
+    let width = registry
         .iter()
         .map(|action| action.name().chars().count())
         .max()
         .unwrap_or(4);
 
-    println!("{} action(s)\n", all.len());
-    for action in &all {
+    println!("{} action(s)\n", registry.len());
+    for action in registry.iter() {
         println!("  {:<width$}  {}", action.name(), action.description());
     }
     println!("\nDetails: shlane action show <name>");
 }
 
-pub fn show(name: &str) -> Result<()> {
-    let Some(action) = actions::find(name) else {
+pub fn show(registry: &Registry, name: &str) -> Result<()> {
+    let Some(action) = registry.find(name) else {
         return Err(ShlaneError::Action {
             action: name.to_string(),
-            message: format!("no such action (try: {})", actions::names().join(", ")),
+            message: format!("no such action (try: {})", registry.names().join(", ")),
         });
     };
 
@@ -38,7 +37,7 @@ pub fn show(name: &str) -> Result<()> {
             if spec.required {
                 notes.push("required".to_string());
             }
-            if let Some(default) = spec.default {
+            if let Some(default) = &spec.default {
                 notes.push(format!("default: {default}"));
             }
             if spec.sensitive {

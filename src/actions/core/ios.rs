@@ -742,7 +742,7 @@ mod tests {
             .find(|spec| spec.name == "destination")
             .expect("a destination");
         assert_eq!(
-            destination.default,
+            destination.default.as_deref(),
             Some("platform=iOS Simulator,name=iPhone 15")
         );
     }

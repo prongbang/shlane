@@ -14,37 +14,41 @@ use context::ActionContext;
 use std::collections::BTreeMap;
 
 /// One argument of an action.
+///
+/// Owned rather than `&'static str` so a plugin can describe its own arguments
+/// at load time (`docs/plan/09-plugins.md`).
+#[derive(Debug, Clone)]
 pub struct ArgSpec {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub required: bool,
-    pub default: Option<&'static str>,
+    pub default: Option<String>,
     /// Registered as a secret, so its value never reaches the output.
     pub sensitive: bool,
 }
 
 impl ArgSpec {
-    pub const fn new(name: &'static str, description: &'static str) -> Self {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
-            name,
-            description,
+            name: name.into(),
+            description: description.into(),
             required: false,
             default: None,
             sensitive: false,
         }
     }
 
-    pub const fn required(mut self) -> Self {
+    pub fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
-    pub const fn default(mut self, value: &'static str) -> Self {
-        self.default = Some(value);
+    pub fn default(mut self, value: impl Into<String>) -> Self {
+        self.default = Some(value.into());
         self
     }
 
-    pub const fn sensitive(mut self) -> Self {
+    pub fn sensitive(mut self) -> Self {
         self.sensitive = true;
         self
     }
@@ -91,8 +95,8 @@ impl ActionOutput {
 }
 
 pub trait Action {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
     fn schema(&self) -> Vec<ArgSpec>;
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput>;
 }
@@ -100,14 +104,6 @@ pub trait Action {
 /// Every built-in action, in listing order.
 pub fn all() -> Vec<Box<dyn Action>> {
     core::all()
-}
-
-pub fn find(name: &str) -> Option<Box<dyn Action>> {
-    all().into_iter().find(|action| action.name() == name)
-}
-
-pub fn names() -> Vec<&'static str> {
-    all().iter().map(|action| action.name()).collect()
 }
 
 /// Check a step's arguments against an action's schema.
@@ -118,7 +114,7 @@ pub fn check_args(action: &dyn Action, provided: &BTreeMap<String, String>) -> V
     let mut problems = Vec::new();
 
     for spec in &schema {
-        if spec.required && !provided.contains_key(spec.name) {
+        if spec.required && !provided.contains_key(&spec.name) {
             problems.push(format!(
                 "action '{}' needs '{}' ({})",
                 action.name(),
@@ -129,8 +125,8 @@ pub fn check_args(action: &dyn Action, provided: &BTreeMap<String, String>) -> V
     }
 
     for name in provided.keys() {
-        if !schema.iter().any(|spec| spec.name == name) {
-            let known: Vec<&str> = schema.iter().map(|spec| spec.name).collect();
+        if !schema.iter().any(|spec| &spec.name == name) {
+            let known: Vec<&str> = schema.iter().map(|spec| spec.name.as_str()).collect();
             problems.push(format!(
                 "action '{}' has no argument '{name}' (it takes: {})",
                 action.name(),
@@ -151,12 +147,46 @@ pub fn with_defaults(action: &dyn Action, provided: &BTreeMap<String, String>) -
     let mut values = provided.clone();
     for spec in action.schema() {
         if let Some(default) = spec.default {
-            values
-                .entry(spec.name.to_string())
-                .or_insert_with(|| default.to_string());
+            values.entry(spec.name).or_insert(default);
         }
     }
     Args::new(values)
+}
+
+/// Every action available to a run: the built-ins, plus whatever the config's
+/// `plugins:` brought in.
+pub struct Registry {
+    actions: Vec<Box<dyn Action>>,
+}
+
+impl Registry {
+    pub fn builtins() -> Self {
+        Self { actions: all() }
+    }
+
+    pub fn with_plugins(mut self, plugins: Vec<Box<dyn Action>>) -> Self {
+        self.actions.extend(plugins);
+        self
+    }
+
+    pub fn find(&self, name: &str) -> Option<&dyn Action> {
+        self.actions
+            .iter()
+            .find(|action| action.name() == name)
+            .map(AsRef::as_ref)
+    }
+
+    pub fn names(&self) -> Vec<&str> {
+        self.actions.iter().map(|action| action.name()).collect()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &dyn Action> {
+        self.actions.iter().map(AsRef::as_ref)
+    }
+
+    pub fn len(&self) -> usize {
+        self.actions.len()
+    }
 }
 
 #[cfg(test)]
@@ -205,8 +235,11 @@ mod tests {
 
     #[test]
     fn missing_required_arguments_are_reported() {
-        let action = find("git_commit").expect("git_commit should exist");
-        let problems = check_args(action.as_ref(), &args(&[]));
+        let registry = Registry::builtins();
+        let action = registry
+            .find("git_commit")
+            .expect("git_commit should exist");
+        let problems = check_args(action, &args(&[]));
         assert!(
             problems.iter().any(|p| p.contains("message")),
             "{problems:?}"
@@ -215,8 +248,11 @@ mod tests {
 
     #[test]
     fn unknown_arguments_are_reported() {
-        let action = find("git_commit").expect("git_commit should exist");
-        let problems = check_args(action.as_ref(), &args(&[("message", "x"), ("mesage", "y")]));
+        let registry = Registry::builtins();
+        let action = registry
+            .find("git_commit")
+            .expect("git_commit should exist");
+        let problems = check_args(action, &args(&[("message", "x"), ("mesage", "y")]));
         assert!(
             problems.iter().any(|p| p.contains("mesage")),
             "{problems:?}"
@@ -225,8 +261,9 @@ mod tests {
 
     #[test]
     fn defaults_are_filled_in() {
-        let action = find("git_push").expect("git_push should exist");
-        let filled = with_defaults(action.as_ref(), &args(&[]));
+        let registry = Registry::builtins();
+        let action = registry.find("git_push").expect("git_push should exist");
+        let filled = with_defaults(action, &args(&[]));
         assert_eq!(filled.get("remote"), Some("origin"));
     }
 

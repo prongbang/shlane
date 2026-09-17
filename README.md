@@ -56,6 +56,8 @@ shlane run deploy target=staging
 | `shlane validate` | Check the config without running anything |
 | `shlane init` | Write a starter config, guessing the project type |
 | `shlane action list` / `shlane action show <name>` | The built-in actions and their arguments |
+| `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
+| `shlane plugin list/lock/verify` | Inspect the plugins this config loads |
 | `shlane completions <shell>` | Print a shell completion script |
 
 | Flag | What it does |
@@ -315,6 +317,77 @@ action for are still reachable.
 here; the round trip is not, and needs a machine with Xcode and a real Apple account.
 `test_ios` runs the tests and reports the `.xcresult` path, but does not yet convert it
 to JUnit the way `test_android` gets JUnit from Gradle for free.
+
+## Plugins
+
+An action shlane does not have can come from a plugin: a directory with a manifest and
+an executable, which can be written in anything.
+
+```yaml
+plugins:
+  - name: line-notify
+    path: ./tools/line-notify
+lanes:
+  notify:
+    steps:
+      - action: notify_line          # validated like any built-in
+        with:
+          token: ${LINE_TOKEN}
+          message: shipped
+```
+
+```yaml
+# tools/line-notify/shlane-plugin.yaml
+name: line-notify
+version: 0.2.0
+protocol: 1
+executable: notify.sh
+actions:
+  - name: notify_line
+    description: Send a LINE message
+    args:
+      - name: token
+        description: Channel token
+        required: true
+        sensitive: true      # masked wherever it appears
+      - name: message
+```
+
+The plugin reads one JSON object on stdin and writes one JSON object per line back:
+
+```
+{"protocol":1,"op":"run","action":"notify_line","args":{...},"context":{...}}
+
+{"type":"log","level":"info","message":"sending"}
+{"type":"secret","value":"a-token-it-just-obtained"}
+{"type":"result","ok":true,"outputs":{"id":"msg-1"}}
+```
+
+`shlane plugin lock` records each executable's SHA-256 in `shlane-plugins.lock`, and a
+plugin that no longer matches is refused — a plugin runs with the same permissions as
+shlane, on the machine holding the signing keys. `shlane plugin verify` asks each
+plugin to describe itself and reports where its manifest has drifted.
+
+Plugins are loaded from local paths only. Fetching one from a git host waits for the
+installer described in [`docs/plan/09-plugins.md`](docs/plan/09-plugins.md); vendor it
+and point `path:` at the directory.
+
+## Migrating from fastlane
+
+```sh
+shlane migrate                       # reads fastlane/Fastfile, writes shlane.yaml
+shlane validate
+```
+
+It converts platforms, lanes, `desc`, `sh` and the actions in the mapping table,
+translates `ENV["X"]` and `options[:x]` into `${X}` and `${x}`, and fills in required
+arguments fastlane read from the Appfile with visible `TODO-` placeholders so the
+result still validates.
+
+It is best effort by construction — a Fastfile is Ruby, and Ruby can do anything.
+Anything it does not understand is carried across as a `# TODO` comment rather than
+dropped, and the report lists what needs a person. It says so loudly when a conditional
+block is flattened: those steps now run unconditionally.
 
 ## Environment and secrets
 

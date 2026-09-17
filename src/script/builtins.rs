@@ -18,6 +18,7 @@ pub struct Runtime {
     pub outputs: SharedOutputs,
     pub secrets: SharedSecrets,
     pub ui: Rc<Ui>,
+    pub registry: Rc<crate::actions::Registry>,
 }
 
 /// What a command did. Returned by `run()`, `try_run()`.
@@ -198,10 +199,11 @@ fn register_actions(engine: &mut Engine, runtime: Runtime) {
 }
 
 fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::Map> {
-    let Some(action) = crate::actions::find(name) else {
+    let registry = runtime.registry.clone();
+    let Some(action) = registry.find(name) else {
         return Err(format!(
             "no such action '{name}' (try: {})",
-            crate::actions::names().join(", ")
+            registry.names().join(", ")
         )
         .into());
     };
@@ -211,15 +213,15 @@ fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect();
 
-    let problems = crate::actions::check_args(action.as_ref(), &provided);
+    let problems = crate::actions::check_args(action, &provided);
     if !problems.is_empty() {
         return Err(problems.join("; ").into());
     }
 
-    let args = crate::actions::with_defaults(action.as_ref(), &provided);
+    let args = crate::actions::with_defaults(action, &provided);
     for spec in action.schema() {
         if spec.sensitive {
-            if let Some(value) = args.get(spec.name) {
+            if let Some(value) = args.get(&spec.name) {
                 runtime.secrets.borrow_mut().add(value);
             }
         }

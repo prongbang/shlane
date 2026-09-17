@@ -3,6 +3,8 @@
 mod actions;
 mod init;
 mod list;
+mod migrate;
+mod plugins;
 
 use crate::config::loader::{self, Discovered};
 use crate::config::validate;
@@ -59,6 +61,16 @@ enum ActionCommands {
 }
 
 #[derive(Subcommand)]
+enum PluginCommands {
+    /// Show every plugin, its actions and its checksum
+    List,
+    /// Record each plugin's checksum in shlane-plugins.lock
+    Lock,
+    /// Ask each plugin to describe itself and compare with its manifest
+    Verify,
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Run a lane defined in the config file
     Run {
@@ -100,6 +112,27 @@ enum Commands {
     Action {
         #[command(subcommand)]
         command: ActionCommands,
+    },
+
+    /// Convert a Fastfile into a shlane.yaml
+    Migrate {
+        /// The Fastfile to read; found automatically by default
+        #[arg(long, value_name = "PATH")]
+        fastfile: Option<PathBuf>,
+
+        /// Where to write the result
+        #[arg(long, value_name = "PATH")]
+        out: Option<PathBuf>,
+
+        /// Overwrite an existing file
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Inspect the plugins this config loads
+    Plugin {
+        #[command(subcommand)]
+        command: PluginCommands,
     },
 
     /// Print a shell completion script
@@ -164,7 +197,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         }
         Commands::Validate => {
             let found = load(file.as_deref(), &base)?;
-            let problems = validate::check(&found.config);
+            let registry = registry_for(&found)?;
+            let problems = validate::check(&found.config, &registry);
             if problems.is_empty() {
                 let lanes = found.config.lanes.len();
                 println!("{} is valid ({lanes} lane(s))", found.path.display());
@@ -175,13 +209,34 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 problems,
             })
         }
-        Commands::Action { command } => match command {
-            ActionCommands::List => {
-                actions::list();
-                Ok(())
+        Commands::Action { command } => {
+            // Plugins only load when there is a config; `shlane action list`
+            // still has to work outside a project.
+            let registry = match load(file.as_deref(), &base) {
+                Ok(found) => registry_for(&found)?,
+                Err(_) => crate::actions::Registry::builtins(),
+            };
+            match command {
+                ActionCommands::List => {
+                    actions::list(&registry);
+                    Ok(())
+                }
+                ActionCommands::Show { name } => actions::show(&registry, &name),
             }
-            ActionCommands::Show { name } => actions::show(&name),
-        },
+        }
+        Commands::Plugin { command } => {
+            let found = load(file.as_deref(), &base)?;
+            match command {
+                PluginCommands::List => plugins::list(&found),
+                PluginCommands::Lock => plugins::lock(&found),
+                PluginCommands::Verify => plugins::verify(&found),
+            }
+        }
+        Commands::Migrate {
+            fastfile,
+            out,
+            force,
+        } => migrate::run(&base, fastfile.as_deref(), out.as_deref(), force),
         Commands::Init { force } => init::write(&base, force),
         Commands::Completions { shell } => {
             clap_complete::generate(
@@ -193,6 +248,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// Built-in actions plus whatever the config's `plugins:` bring in.
+fn registry_for(found: &Discovered) -> Result<crate::actions::Registry> {
+    let loaded = crate::plugin::load_all(&found.config, &found.root)?;
+    Ok(crate::actions::Registry::builtins().with_plugins(crate::plugin::actions(loaded)))
 }
 
 fn load(file: Option<&std::path::Path>, base: &std::path::Path) -> Result<Discovered> {
