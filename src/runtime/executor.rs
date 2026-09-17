@@ -1,12 +1,16 @@
 //! Lane execution.
 
-use super::context::{Frame, SharedFrame};
+use super::context::{Frame, Outputs, SharedFrame, SharedOutputs};
 use super::interpolate::{interpolate, interpolate_plain, Vars};
-use super::shell;
+use super::secrets::{Secrets, SharedSecrets};
+use super::shell::{self, Spawn};
+use super::ui::{Ui, Verbosity};
+use super::{env as environment, signals};
 use crate::config::model::{Config, Lane, ParamSpec, Step, StepKind};
 use crate::config::validate;
 use crate::error::{Result, ShlaneError};
 use crate::script;
+use crate::script::builtins::Runtime;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,9 +20,13 @@ use std::time::{Duration, Instant};
 /// How deeply `lane:` steps may nest before shlane gives up.
 const MAX_DEPTH: usize = 16;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Options {
     pub dry_run: bool,
+    pub verbosity: Verbosity,
+    pub json: bool,
+    /// Selects `.env.<profile>` (`docs/plan/10-secrets-and-env.md`).
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +58,9 @@ pub struct Runner<'a> {
     root: PathBuf,
     options: Options,
     frame: SharedFrame,
+    outputs: SharedOutputs,
+    secrets: SharedSecrets,
+    ui: Rc<Ui>,
     engine: rhai::Engine,
     scope: rhai::Scope<'static>,
     records: Vec<Record>,
@@ -87,41 +98,91 @@ pub fn run_lane(
         });
     }
 
-    let mut runner = Runner::new(config, root, options);
+    signals::install();
+
+    let mut runner = Runner::new(config, root, options)?;
     let outcome = runner.run(lane_name, params);
     runner.print_summary();
 
     if outcome.is_ok() {
-        println!("\nLane '{lane_name}' completed successfully!");
+        runner
+            .ui
+            .say(&format!("\nLane '{lane_name}' completed successfully!"));
+        runner.ui.event(&[
+            ("type", "lane_finished"),
+            ("lane", lane_name),
+            ("result", "ok"),
+        ]);
+    } else {
+        runner.ui.event(&[
+            ("type", "lane_finished"),
+            ("lane", lane_name),
+            ("result", "failed"),
+        ]);
     }
     outcome
 }
 
 impl<'a> Runner<'a> {
-    fn new(config: &'a Config, root: &Path, options: Options) -> Self {
+    fn new(config: &'a Config, root: &Path, options: Options) -> Result<Self> {
+        let mut registry = Secrets::new();
+        let env = environment::build(config, root, options.profile.as_deref(), &mut registry)?;
+
+        // Values the config explicitly marks secret, once the environment they
+        // refer to is known.
+        let empty = BTreeMap::new();
+        for pattern in &config.secrets {
+            let vars = Vars {
+                params: &empty,
+                env: &env,
+                meta: &empty,
+                outputs: &empty,
+            };
+            if let Ok(value) = interpolate_plain(pattern, &vars) {
+                registry.add(&value);
+            }
+        }
+
+        let secrets: SharedSecrets = Rc::new(RefCell::new(registry));
+        let ui = Rc::new(Ui::new(options.verbosity, options.json, secrets.clone()));
+
         let frame: SharedFrame = Rc::new(RefCell::new(Frame {
             lane: String::new(),
             params: BTreeMap::new(),
-            env: config.env.clone(),
+            env,
             workdir: root.to_path_buf(),
             dry_run: options.dry_run,
         }));
-        let engine = script::engine::build(&frame);
-        Self {
+        let outputs: SharedOutputs = Rc::new(RefCell::new(Outputs::default()));
+
+        let engine = script::engine::build(&Runtime {
+            frame: frame.clone(),
+            outputs: outputs.clone(),
+            secrets: secrets.clone(),
+            ui: ui.clone(),
+        });
+
+        Ok(Self {
             config,
             root: root.to_path_buf(),
             options,
             frame,
+            outputs,
+            secrets,
+            ui,
             engine,
             scope: rhai::Scope::new(),
             records: Vec::new(),
             depth: 0,
-        }
+        })
     }
 
     fn run(&mut self, lane_name: &str, params: BTreeMap<String, String>) -> Result<()> {
+        self.ui
+            .event(&[("type", "lane_started"), ("lane", lane_name)]);
+
         if let Some(shared) = &self.config.script {
-            println!("Loading shared script...");
+            self.ui.detail("Loading shared script...");
             let source = shared.clone();
             script::load_shared(&mut self.engine, &mut self.scope, &source).map_err(|message| {
                 ShlaneError::Script {
@@ -145,6 +206,7 @@ impl<'a> Runner<'a> {
         };
         let params = resolve_params(lane_name, lane, params)?;
         let previous = self.enter(lane_name, params);
+        self.lane_env(lane)?;
 
         let result = self
             .run_steps("before_all", lane_name, &self.config.before_all)
@@ -152,10 +214,10 @@ impl<'a> Runner<'a> {
             .and_then(|()| self.run_steps("after_all", lane_name, &self.config.after_all));
 
         if result.is_err() && !self.config.error.is_empty() {
-            println!("\nRunning error hooks...");
+            self.ui.say("\nRunning error hooks...");
             // A failing error hook must not replace the failure that caused it.
             if let Err(err) = self.run_steps("error", lane_name, &self.config.error) {
-                eprintln!("warning: an error hook itself failed: {err}");
+                self.ui.warn(&format!("an error hook itself failed: {err}"));
             }
         }
 
@@ -183,8 +245,9 @@ impl<'a> Runner<'a> {
 
         let params = resolve_params(lane_name, lane, params)?;
         let previous = self.enter(lane_name, params);
+        let lane_env = self.lane_env(lane);
 
-        let result = self.run_lane_body(lane_name, lane);
+        let result = lane_env.and_then(|()| self.run_lane_body(lane_name, lane));
 
         *self.frame.borrow_mut() = previous;
         result
@@ -192,14 +255,24 @@ impl<'a> Runner<'a> {
 
     fn run_lane_body(&mut self, lane_name: &str, lane: &Lane) -> Result<()> {
         if self.depth > 0 {
-            println!("\n-> lane '{lane_name}'");
+            self.ui.say(&format!("\n-> lane '{lane_name}'"));
+            self.ui
+                .event(&[("type", "lane_started"), ("lane", lane_name)]);
+        }
+
+        if self.ui.is_verbose() {
+            let frame = self.frame.borrow();
+            for (key, value) in &frame.params {
+                self.ui.detail(&format!("  param {key}={value}"));
+            }
         }
 
         self.run_steps("before hook", lane_name, &lane.before)?;
         self.run_steps("step", lane_name, &lane.steps)?;
 
         if let Some(source) = &lane.script {
-            println!("Running Rhai script for lane '{lane_name}':");
+            self.ui
+                .say(&format!("Running Rhai script for lane '{lane_name}':"));
             let started = Instant::now();
             let source = source.clone();
             let result = script::eval(&self.engine, &mut self.scope, &source);
@@ -247,11 +320,24 @@ impl<'a> Runner<'a> {
                     }
                 })?;
             if !keep {
-                println!("Skipping {phase} '{label}' ({condition} is false)");
+                self.ui.say(&format!(
+                    "Skipping {phase} '{label}' ({condition} is false)"
+                ));
+                self.ui.event(&[
+                    ("type", "step_skipped"),
+                    ("lane", lane_name),
+                    ("step", &label),
+                ]);
                 self.record(lane_name, &label, Status::Skipped, Duration::ZERO);
                 return Ok(());
             }
         }
+
+        self.ui.event(&[
+            ("type", "step_started"),
+            ("lane", lane_name),
+            ("step", &label),
+        ]);
 
         let started = Instant::now();
         let mut attempt = 0;
@@ -261,20 +347,33 @@ impl<'a> Runner<'a> {
             match result {
                 Ok(()) => break Ok(()),
                 Err(err) if attempt <= step.retry => {
-                    println!("Attempt {attempt} failed ({err}); retrying...");
+                    self.ui
+                        .say(&format!("Attempt {attempt} failed ({err}); retrying..."));
                 }
                 Err(err) => break Err(err),
             }
         };
         let duration = started.elapsed();
 
+        self.ui.event(&[
+            ("type", "step_finished"),
+            ("lane", lane_name),
+            ("step", &label),
+            ("result", if result.is_ok() { "ok" } else { "failed" }),
+        ]);
+
         match result {
             Ok(()) => {
                 self.record(lane_name, &label, Status::Ok, duration);
                 Ok(())
             }
+            Err(err) if matches!(err, ShlaneError::Interrupted { .. }) => {
+                self.record(lane_name, &label, Status::Failed, duration);
+                Err(err)
+            }
             Err(err) if step.continue_on_error => {
-                eprintln!("warning: {err} (continuing, continue_on_error is set)");
+                self.ui
+                    .warn(&format!("{err} (continuing, continue_on_error is set)"));
                 self.record(lane_name, &label, Status::Failed, duration);
                 Ok(())
             }
@@ -297,7 +396,7 @@ impl<'a> Runner<'a> {
             StepKind::Run(command) => self.execute_command(phase, lane_name, index, step, command, label),
             StepKind::Script(source) => {
                 if self.options.dry_run {
-                    println!("Would run script: {label}");
+                    self.ui.say(&format!("Would run script: {label}"));
                     return Ok(());
                 }
                 let source = source.clone();
@@ -335,29 +434,46 @@ impl<'a> Runner<'a> {
         command: &str,
         label: &str,
     ) -> Result<()> {
-        let command = {
-            let frame = self.frame.borrow();
-            let meta = frame.meta();
-            interpolate(
-                command,
-                &Vars {
-                    params: &frame.params,
-                    env: &frame.env,
-                    meta: &meta,
-                },
-            )?
-        };
+        let command = self.with_vars(|vars| interpolate(command, vars))?;
 
         let env = self.step_env(&step.env)?;
         let workdir = self.step_workdir(step.workdir.as_deref())?;
 
         if self.options.dry_run {
-            println!("Would run: {command}");
+            self.ui.say(&format!("Would run: {command}"));
             return Ok(());
         }
 
-        println!("Running: {command}");
-        let outcome = shell::run(&command, &env, &workdir, step.timeout)?;
+        self.ui.say(&format!("Running: {command}"));
+        if self.ui.is_verbose() {
+            self.ui.detail(&format!("  in {}", workdir.display()));
+        }
+
+        let outcome = {
+            let secrets = self.secrets.borrow().clone();
+            shell::run(Spawn {
+                command: &command,
+                env: &env,
+                workdir: &workdir,
+                timeout: step.timeout,
+                quiet: false,
+                secrets: &secrets,
+            })?
+        };
+
+        if let Some(id) = &step.id {
+            let mut outputs = self.outputs.borrow_mut();
+            outputs.set(id, "stdout", outcome.stdout.trim_end());
+            outputs.set(id, "stderr", outcome.stderr.trim_end());
+            outputs.set(id, "code", outcome.code.unwrap_or(-1).to_string());
+        }
+
+        if outcome.interrupted {
+            return Err(ShlaneError::Interrupted {
+                lane: lane_name.to_string(),
+                step: label.to_string(),
+            });
+        }
 
         if outcome.timed_out {
             return Err(ShlaneError::StepTimedOut {
@@ -379,51 +495,77 @@ impl<'a> Runner<'a> {
         })
     }
 
-    /// Step-level `env:` is layered on top of the lane's environment.
-    fn step_env(&self, overrides: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
-        let frame = self.frame.borrow();
-        let mut env = frame.env.clone();
-        if overrides.is_empty() {
-            return Ok(env);
+    /// Layer the lane's own `env:` on top of what it inherited.
+    fn lane_env(&self, lane: &Lane) -> Result<()> {
+        if lane.env.is_empty() {
+            return Ok(());
         }
+        let rendered = self.with_vars(|vars| {
+            lane.env
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), interpolate_plain(value, vars)?)))
+                .collect::<Result<BTreeMap<String, String>>>()
+        })?;
+
+        let mut frame = self.frame.borrow_mut();
+        for (key, value) in rendered {
+            if crate::runtime::secrets::is_sensitive_name(&key) {
+                self.secrets.borrow_mut().add(&value);
+            }
+            frame.env.insert(key, value);
+        }
+        Ok(())
+    }
+
+    /// Run `body` with everything `${...}` can resolve against.
+    fn with_vars<T>(&self, body: impl FnOnce(&Vars<'_>) -> Result<T>) -> Result<T> {
+        let frame = self.frame.borrow();
         let meta = frame.meta();
-        let vars = Vars {
+        let outputs = self.outputs.borrow().flatten();
+        body(&Vars {
             params: &frame.params,
             env: &frame.env,
             meta: &meta,
-        };
-        for (key, value) in overrides {
-            env.insert(key.clone(), interpolate_plain(value, &vars)?);
+            outputs: &outputs,
+        })
+    }
+
+    /// Step-level `env:` is layered on top of the lane's environment.
+    fn step_env(&self, overrides: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
+        let mut env = self.frame.borrow().env.clone();
+        if overrides.is_empty() {
+            return Ok(env);
+        }
+        let rendered = self.with_vars(|vars| {
+            overrides
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), interpolate_plain(value, vars)?)))
+                .collect::<Result<BTreeMap<String, String>>>()
+        })?;
+
+        for (key, value) in rendered {
+            if crate::runtime::secrets::is_sensitive_name(&key) {
+                self.secrets.borrow_mut().add(&value);
+            }
+            env.insert(key, value);
         }
         Ok(env)
     }
 
     fn step_workdir(&self, workdir: Option<&str>) -> Result<PathBuf> {
-        let frame = self.frame.borrow();
         let Some(workdir) = workdir else {
-            return Ok(frame.workdir.clone());
+            return Ok(self.frame.borrow().workdir.clone());
         };
-        let meta = frame.meta();
-        let vars = Vars {
-            params: &frame.params,
-            env: &frame.env,
-            meta: &meta,
-        };
-        let rendered = interpolate_plain(workdir, &vars)?;
-        Ok(frame.workdir.join(rendered))
+        let rendered = self.with_vars(|vars| interpolate_plain(workdir, vars))?;
+        Ok(self.frame.borrow().workdir.join(rendered))
     }
 
     fn interpolate_map(&self, map: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
-        let frame = self.frame.borrow();
-        let meta = frame.meta();
-        let vars = Vars {
-            params: &frame.params,
-            env: &frame.env,
-            meta: &meta,
-        };
-        map.iter()
-            .map(|(key, value)| Ok((key.clone(), interpolate_plain(value, &vars)?)))
-            .collect()
+        self.with_vars(|vars| {
+            map.iter()
+                .map(|(key, value)| Ok((key.clone(), interpolate_plain(value, vars)?)))
+                .collect()
+        })
     }
 
     /// Install a new frame for `lane_name`, returning the one it replaced.
@@ -472,29 +614,31 @@ impl<'a> Runner<'a> {
             .unwrap_or(4)
             .clamp(4, 48);
 
-        println!("\nSummary");
-        println!(
+        // Through the UI, so --quiet and --json suppress it and secrets in a
+        // step's name are masked.
+        self.ui.say("\nSummary");
+        self.ui.say(&format!(
             "  {:>3}  {:<lane_width$}  {:<label_width$}  {:<8}  {:>8}",
             "#", "lane", "step", "result", "time"
-        );
+        ));
         for (index, record) in self.records.iter().enumerate() {
-            println!(
+            self.ui.say(&format!(
                 "  {:>3}  {:<lane_width$}  {:<label_width$}  {:<8}  {:>8}",
                 index + 1,
                 record.lane,
                 truncate(&record.label, label_width),
                 record.status.symbol(),
                 format_duration(record.duration),
-            );
+            ));
         }
-        println!(
+        self.ui.say(&format!(
             "  {:>3}  {:<lane_width$}  {:<label_width$}  {:<8}  {:>8}",
             "",
             "",
             "",
             "total",
             format_duration(total),
-        );
+        ));
     }
 }
 

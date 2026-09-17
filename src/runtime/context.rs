@@ -14,7 +14,7 @@ use std::rc::Rc;
 ///
 /// Shared with the Rhai builtins so that `param()` and `env()` follow nested
 /// `lane:` calls instead of being frozen at engine construction.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Frame {
     pub lane: String,
     pub params: BTreeMap<String, String>,
@@ -34,6 +34,41 @@ impl Frame {
 }
 
 pub type SharedFrame = Rc<RefCell<Frame>>;
+
+/// What steps have produced so far, keyed by step id.
+///
+/// Outputs outlive the frame they were created in, so a later step can read
+/// what an earlier one produced even across a `lane:` call.
+#[derive(Debug, Default)]
+pub struct Outputs {
+    values: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+impl Outputs {
+    pub fn set(&mut self, id: &str, key: &str, value: impl Into<String>) {
+        self.values
+            .entry(id.to_string())
+            .or_default()
+            .insert(key.to_string(), value.into());
+    }
+
+    pub fn get(&self, id: &str, key: &str) -> Option<&String> {
+        self.values.get(id)?.get(key)
+    }
+
+    /// Flattened as `<id>.<key>`, ready for `${steps.<id>.<key>}`.
+    pub fn flatten(&self) -> BTreeMap<String, String> {
+        let mut flat = BTreeMap::new();
+        for (id, entries) in &self.values {
+            for (key, value) in entries {
+                flat.insert(format!("{id}.{key}"), value.clone());
+            }
+        }
+        flat
+    }
+}
+
+pub type SharedOutputs = Rc<RefCell<Outputs>>;
 
 /// Parse `key=value` arguments from the command line.
 ///
@@ -84,5 +119,27 @@ mod tests {
         let meta = frame.meta();
         assert_eq!(meta.get("lane").map(String::as_str), Some("beta"));
         assert!(meta.contains_key("version"));
+    }
+
+    #[test]
+    fn outputs_are_looked_up_by_step_and_key() {
+        let mut outputs = Outputs::default();
+        outputs.set("build", "stdout", "ok");
+        assert_eq!(
+            outputs.get("build", "stdout").map(String::as_str),
+            Some("ok")
+        );
+        assert_eq!(outputs.get("build", "missing"), None);
+        assert_eq!(outputs.get("nope", "stdout"), None);
+    }
+
+    #[test]
+    fn outputs_flatten_for_interpolation() {
+        let mut outputs = Outputs::default();
+        outputs.set("build", "stdout", "ok");
+        outputs.set("build", "code", "0");
+        let flat = outputs.flatten();
+        assert_eq!(flat.get("build.stdout").map(String::as_str), Some("ok"));
+        assert_eq!(flat.get("build.code").map(String::as_str), Some("0"));
     }
 }

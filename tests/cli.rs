@@ -865,3 +865,333 @@ fn output_survives_a_closed_pipe() {
         "a closed pipe must not panic:\n{stderr}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// M2: environment, secrets, step outputs, the script API and output modes
+// ---------------------------------------------------------------------------
+
+#[test]
+fn env_files_are_loaded() {
+    let sandbox = Sandbox::new(
+        "env_files: [.env]\nlanes:\n  a:\n    steps:\n      - run: echo from-file-$FROM_FILE\n",
+    );
+    sandbox.write(".env", "FROM_FILE=yes\n");
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("from-file-yes");
+}
+
+#[test]
+fn a_profile_selects_an_env_file() {
+    let sandbox = Sandbox::new(
+        "env_files: [.env, \".env.${SHLANE_PROFILE}\"]\nlanes:\n  a:\n    steps:\n      - run: echo stage-$STAGE\n",
+    );
+    sandbox.write(".env", "STAGE=base\n");
+    sandbox.write(".env.ci", "STAGE=ci\n");
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("stage-base");
+
+    sandbox
+        .run(&["--env", "ci", "run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("stage-ci");
+}
+
+#[test]
+fn a_missing_env_file_is_not_an_error() {
+    let sandbox = Sandbox::new(
+        "env_files: [.env, \".env.${SHLANE_PROFILE}\"]\nlanes:\n  a:\n    steps:\n      - run: echo fine\n",
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("fine");
+}
+
+#[test]
+fn lane_and_step_env_override_the_config() {
+    let sandbox = Sandbox::new(
+        r#"
+env:
+  STAGE: config
+lanes:
+  a:
+    env:
+      STAGE: lane
+    steps:
+      - run: echo saw-$STAGE
+      - run: echo saw-$STAGE
+        env:
+          STAGE: step
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(0)
+        .assert_stdout_contains("saw-lane")
+        .assert_stdout_contains("saw-step");
+}
+
+#[test]
+fn secrets_are_masked_everywhere() {
+    let sandbox = Sandbox::new(
+        r#"
+env:
+  API_TOKEN: supersecret123
+  APP_ENV: production
+lanes:
+  a:
+    steps:
+      - run: echo using ${API_TOKEN}
+      - run: echo stage is $APP_ENV
+      - run: echo $API_TOKEN >&2
+      - run: exit 1
+        name: fails with ${API_TOKEN}
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(1);
+
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    assert!(
+        !everything.contains("supersecret123"),
+        "the secret leaked:\n{everything}"
+    );
+    assert!(
+        everything.contains("***"),
+        "nothing was masked:\n{everything}"
+    );
+    // A value whose name is not sensitive is left alone.
+    assert!(
+        everything.contains("production"),
+        "ordinary values should not be masked:\n{everything}"
+    );
+}
+
+#[test]
+fn values_listed_under_secrets_are_masked() {
+    let sandbox = Sandbox::new(
+        r#"
+env:
+  LICENCE: plain-looking-value
+secrets:
+  - ${env.LICENCE}
+lanes:
+  a:
+    steps:
+      - run: echo ${LICENCE}
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(0);
+    assert!(
+        !run.stdout.contains("plain-looking-value"),
+        "an explicitly declared secret leaked:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn step_outputs_feed_later_steps() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - id: version
+        run: echo 1.4.2
+      - run: echo building ${steps.version.stdout}
+      - run: echo exit-was ${steps.version.code}
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("building 1.4.2")
+        .assert_stdout_contains("exit-was 0");
+}
+
+#[test]
+fn scripts_can_capture_command_output() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    script: |
+      let version = capture("echo 9.9.9");
+      print("captured=" + version);
+      let result = try_run("exit 4");
+      print("code=" + result.code + " success=" + result.success);
+      set_output("built", "yes");
+      print("output=" + output("a", "built"));
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(0)
+        .assert_stdout_contains("captured=9.9.9")
+        .assert_stdout_contains("code=4 success=false")
+        .assert_stdout_contains("output=yes");
+}
+
+#[test]
+fn a_failing_command_in_a_script_stops_the_lane() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  a:\n    script: |\n      run(\"exit 5\");\n      print(\"must not reach here\");\n",
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(1)
+        .assert_stderr_contains("command failed with exit code 5");
+    assert!(
+        !run.stdout.contains("must not reach here"),
+        "the script kept going after a failed command:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn scripts_can_set_environment_for_later_steps() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    script: |
+      set_env("BUILD_ID", "42");
+    after:
+      - echo build-$BUILD_ID
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("build-42");
+}
+
+#[test]
+fn scripts_can_declare_a_secret_at_runtime() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    script: |
+      secret("rotating-value");
+      print("leaked? rotating-value");
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(0);
+    assert!(
+        !run.stdout.contains("rotating-value"),
+        "a runtime secret leaked:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn json_mode_emits_one_event_per_line() {
+    let sandbox =
+        Sandbox::new("lanes:\n  a:\n    steps:\n      - run: echo hi\n        name: greet\n");
+
+    let run = sandbox.run(&["--json", "run", "a"]);
+    run.assert_code(0);
+
+    let events: Vec<&str> = run
+        .stdout
+        .lines()
+        .filter(|line| line.starts_with('{'))
+        .collect();
+    assert!(
+        events.iter().any(|line| line.contains("\"lane_started\"")),
+        "no lane_started event:\n{}",
+        run.stdout
+    );
+    assert!(
+        events
+            .iter()
+            .any(|line| line.contains("\"step_finished\"") && line.contains("greet")),
+        "no step_finished event:\n{}",
+        run.stdout
+    );
+    assert!(
+        !run.stdout.contains("Running:") && !run.stdout.contains("Summary"),
+        "json mode should not print human output:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn quiet_hides_progress_but_keeps_the_command_output() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - run: echo the-output\n");
+
+    let run = sandbox.run(&["--quiet", "run", "a"]);
+    run.assert_code(0).assert_stdout_contains("the-output");
+    assert!(
+        !run.stdout.contains("Running:") && !run.stdout.contains("Summary"),
+        "--quiet should hide shlane's own chatter:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn verbose_shows_where_a_step_runs() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - run: echo hi\n");
+
+    sandbox
+        .run(&["--verbose", "run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("in ");
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_the_run_and_reports_130() {
+    use std::thread;
+    use std::time::Duration;
+
+    let sandbox = Sandbox::new(
+        r#"
+error:
+  - echo error-hook-ran
+lanes:
+  slow:
+    steps:
+      - run: sleep 30
+        name: slow step
+"#,
+    );
+
+    let child = Command::new(env!("CARGO_BIN_EXE_shlane"))
+        .args(["run", "slow"])
+        .current_dir(sandbox.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("shlane should start");
+
+    // Give it long enough to have spawned the step.
+    thread::sleep(Duration::from_millis(400));
+    let killed = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("kill should run");
+    assert!(killed.success(), "could not signal shlane");
+
+    let output = child.wait_with_output().expect("shlane should exit");
+    let run = Run::new(output);
+
+    run.assert_code(130)
+        .assert_stderr_contains("interrupted")
+        .assert_stdout_contains("error-hook-ran");
+}

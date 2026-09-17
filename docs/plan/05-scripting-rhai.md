@@ -45,7 +45,7 @@ set_output("ipa_path", "build/MyApp.ipa");
 output("build", "ipa")       // อ่านผลของ step id = build
 ```
 
-### เรียก action และ lane
+### เรียก action และ lane (ยังไม่ทำ — รอ M3)
 
 ```rhai
 action("build_ios", #{ scheme: "MyApp", configuration: "Release" });

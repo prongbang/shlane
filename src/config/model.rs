@@ -22,6 +22,12 @@ pub struct Config {
     /// Environment variables handed to every command in every lane.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// `.env` files to read, lowest priority first.
+    #[serde(default)]
+    pub env_files: Vec<String>,
+    /// Values to hide wherever they appear in the output.
+    #[serde(default)]
+    pub secrets: Vec<String>,
     /// Rhai source evaluated once before a lane runs.
     pub script: Option<String>,
     /// Steps run before any lane's own steps.
@@ -66,6 +72,9 @@ pub struct Lane {
     /// Declared parameters, validated before the lane runs.
     #[serde(default)]
     pub params: BTreeMap<String, ParamSpec>,
+    /// Environment variables for this lane only.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub before: Vec<Step>,
     #[serde(default)]

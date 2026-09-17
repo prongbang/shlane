@@ -21,6 +21,8 @@ pub struct Vars<'a> {
     pub params: &'a BTreeMap<String, String>,
     pub env: &'a BTreeMap<String, String>,
     pub meta: &'a BTreeMap<String, String>,
+    /// `steps.<id>.<key>`, from steps that have already run.
+    pub outputs: &'a BTreeMap<String, String>,
 }
 
 impl Vars<'_> {
@@ -34,9 +36,8 @@ impl Vars<'_> {
         if let Some(rest) = name.strip_prefix("shlane.") {
             return self.meta.get(rest);
         }
-        if name.starts_with("steps.") {
-            // Step outputs arrive in M2 (docs/plan/05-scripting-rhai.md).
-            return None;
+        if let Some(rest) = name.strip_prefix("steps.") {
+            return self.outputs.get(rest);
         }
         self.params.get(name).or_else(|| self.env.get(name))
     }
@@ -218,14 +219,31 @@ mod tests {
         let params = map(params);
         let env = map(env);
         let meta = map(meta);
+        let outputs = map(&[("build.stdout", "artifact.ipa")]);
         interpolate(
             input,
             &Vars {
                 params: &params,
                 env: &env,
                 meta: &meta,
+                outputs: &outputs,
             },
         )
+    }
+
+    #[test]
+    fn step_outputs_resolve() {
+        let out = render("echo ${steps.build.stdout}", &[], &[]).expect("should render");
+        assert_eq!(out, "echo artifact.ipa");
+    }
+
+    #[test]
+    fn an_unknown_step_output_is_an_error() {
+        let err = render("echo ${steps.nope.stdout}", &[], &[]).expect_err("should fail");
+        assert!(
+            matches!(err, ShlaneError::UndefinedVariable { .. }),
+            "got {err:?}"
+        );
     }
 
     #[test]

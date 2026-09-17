@@ -28,7 +28,7 @@
 > ยังเหลือจาก M1: การจัดการ Ctrl-C (ต้องมี signal handler), `--json`, `--verbose/-q` และสี
 > — ย้ายไปรวมกับงาน logging ใน M2
 
-## M2 — Runtime และ scripting
+## M2 — Runtime และ scripting ✅ เสร็จแล้ว
 
 - `LaneContext` เต็มรูปแบบ, ลบ `env::set_var` ทั้งหมด
 - `.env` / `env_files` / ลำดับความสำคัญของ env ([10](10-secrets-and-env.md))
@@ -37,6 +37,11 @@
 - logging ด้วย `tracing`, `--json`, `--verbose/-q`
 
 **เสร็จเมื่อ:** test พิสูจน์ได้ว่า secret ไม่หลุดใน log ทุกรูปแบบ และส่งค่าระหว่าง step ได้
+
+> หมายเหตุจากการ implement: `call_lane()` และ `action()` ใน Rhai ยังไม่ได้ทำ เพราะต้องเรียก
+> executor ซ้อนเข้าไปจาก builtin ซึ่งต้องรื้อ ownership — ทำพร้อม action registry ใน M3
+> ส่วน logging ใช้ `ui` module ของตัวเองแทน `tracing` (CLI ต้องการ event stream ที่นิ่ง
+> มากกว่า subscriber stack)
 
 ## M3 — Action framework + action กลาง
 

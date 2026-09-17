@@ -19,6 +19,8 @@ pub mod exit_code {
     pub const PARAMS_INVALID: i32 = 4;
     /// A tool shlane needs is not installed.
     pub const TOOL_MISSING: i32 = 5;
+    /// Stopped by Ctrl-C.
+    pub const INTERRUPTED: i32 = 130;
 }
 
 #[derive(Debug)]
@@ -81,6 +83,10 @@ pub enum ShlaneError {
         path: PathBuf,
         problems: Vec<String>,
     },
+    Interrupted {
+        lane: String,
+        step: String,
+    },
 }
 
 impl ShlaneError {
@@ -99,6 +105,7 @@ impl ShlaneError {
             Self::ParamInvalid { .. } => exit_code::PARAMS_INVALID,
             Self::ConfigProblems { .. } => exit_code::CONFIG_INVALID,
             Self::LanePrivate { .. } => exit_code::NOT_FOUND,
+            Self::Interrupted { .. } => exit_code::INTERRUPTED,
         }
     }
 }
@@ -196,6 +203,10 @@ impl fmt::Display for ShlaneError {
                 }
                 Ok(())
             }
+            Self::Interrupted { lane, step } => write!(
+                f,
+                "interrupted while running '{step}' in lane '{lane}'"
+            ),
             Self::ConfigProblems { path, problems } => {
                 write!(f, "{} has {} problem(s):", path.display(), problems.len())?;
                 for problem in problems {

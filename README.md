@@ -62,6 +62,9 @@ shlane run deploy target=staging
 | `-f, --file <PATH>` | Use this config instead of searching for one |
 | `-C, --cwd <DIR>` | Work from this directory |
 | `--dry-run` | Print what would run, without running it |
+| `--env <PROFILE>` | Select `.env.<profile>` |
+| `-v, --verbose` / `-q, --quiet` | More detail / errors and command output only |
+| `--json` | One JSON event per line, for other tools to read |
 
 `shlane` looks for `shlane.yaml` (or `shlane.yml`) in the current directory and then
 each parent, so it can be run from anywhere inside a project. `$SHLANE_CONFIG`
@@ -77,6 +80,8 @@ behaves the same wherever it is started.
 | `version` | Schema version. `1` today |
 | `min_shlane` | Minimum shlane version this config needs |
 | `env` | Environment variables handed to every command in every lane |
+| `env_files` | `.env` files to read, lowest priority first |
+| `secrets` | Values to hide wherever they appear in the output |
 | `script` | Rhai source evaluated once before a lane runs — a place for shared functions |
 | `before_all` / `after_all` | Steps run around the lane |
 | `error` | Steps run when a lane fails |
@@ -90,6 +95,7 @@ behaves the same wherever it is started.
 | `platform` | Free-form grouping, e.g. `ios` |
 | `private` | When true, the lane can only be reached from another lane |
 | `params` | Declared parameters, checked before the lane runs |
+| `env` | Environment variables for this lane only |
 | `before` / `steps` / `after` | The lane's steps |
 | `script` | Rhai source run after the steps |
 
@@ -152,6 +158,40 @@ fails the lane instead of silently passing `${targt}` to your shell.
 A bare `${x}` looks in parameters, then in `env`. The namespaced forms say exactly
 where to look: `${params.x}`, `${env.X}`, and `${shlane.lane}` / `${shlane.version}`.
 
+A step with an `id:` publishes what it did, for later steps to read:
+
+```yaml
+steps:
+  - id: version
+    run: cat VERSION
+  - run: echo "building ${steps.version.stdout}"   # also .stderr and .code
+```
+
+## Environment and secrets
+
+```yaml
+env:
+  APP_ENV: production
+env_files:
+  - .env
+  - .env.${SHLANE_PROFILE}     # selected by --env, skipped if there is no profile
+secrets:
+  - ${env.LICENCE_KEY}         # hide a value whose name does not look secret
+```
+
+Precedence, lowest first: `env:` in the config, then each file in `env_files:` in
+order, then the environment shlane was started with — so a value injected by CI always
+wins over one committed to a file — then the lane's `env:`, then the step's.
+
+**Secrets are masked in everything shlane prints**: the command it echoes, the
+command's own stdout and stderr, error messages, the summary and the `--json` stream.
+A value is treated as secret when its name ends in `_TOKEN`, `_SECRET`, `_PASSWORD`,
+`_KEY` or `_CREDENTIALS`, when it is listed under `secrets:`, or when a script calls
+`secret(value)`.
+
+Masking requires reading the command's output, so a command that colours its output
+based on whether it is talking to a terminal will see a pipe and turn colour off.
+
 **Values are shell-quoted.** `${target}` always expands to exactly one shell word, so a
 value containing `;`, spaces or backticks cannot inject commands. Quoting follows the
 surrounding context, so a reference already inside `"..."` or `'...'` is escaped in place
@@ -189,13 +229,31 @@ lanes:
 
 | Function | Returns | Notes |
 |---|---|---|
-| `param(key)` | string | `""` when the parameter was not passed |
-| `env(key)` | string | The lane's environment, falling back to the process environment |
-| `run(cmd)` | int | Exit code. Does **not** abort the lane on a non-zero code |
-| `print(msg)` | — | Writes to stdout |
+| `run(cmd)` | `CmdResult` | Stops the lane if the command fails |
+| `try_run(cmd)` | `CmdResult` | Returns the failure instead of raising it |
+| `capture(cmd)` | string | The command's stdout, trimmed, without echoing it |
+| `param(key)` / `param_or(key, default)` / `has_param(key)` | string / string / bool | |
+| `env(key)` / `set_env(key, value)` | string / — | `set_env` applies to later steps in the lane |
+| `set_output(key, value)` / `output(id, key)` | — / string | Pass values between steps |
+| `secret(value)` | — | Hide a value computed at runtime |
+| `ui_message(text)` / `ui_success(text)` / `ui_error(text)` | — | |
+| `print(msg)` | — | Writes to stdout, masked like everything else |
 
-A richer API — `run()` returning stdout, passing values between steps, calling other
-lanes — is planned in [`docs/plan/05-scripting-rhai.md`](docs/plan/05-scripting-rhai.md).
+`CmdResult` has `.stdout`, `.stderr`, `.code` and `.success`.
+
+```yaml
+script: |
+  let version = capture("git describe --tags");
+  let result = try_run("./scripts/optional-check.sh");
+  if !result.success {
+    ui_error("check failed: " + result.stderr);
+  }
+  set_output("version", version);
+```
+
+`action()` and `call_lane()` are not available yet: both need the action registry, so
+they arrive with it in M3 ([`docs/plan/06-actions-core.md`](docs/plan/06-actions-core.md)).
+Use a `lane:` step to call another lane.
 
 ## Exit codes
 
@@ -207,6 +265,7 @@ lanes — is planned in [`docs/plan/05-scripting-rhai.md`](docs/plan/05-scriptin
 | `3` | No config file, or no such lane (or the lane is private) |
 | `4` | A parameter was missing, of the wrong type, or not an allowed value |
 | `5` | A tool shlane needs is not installed |
+| `130` | Stopped by Ctrl-C |
 
 ## Development
 

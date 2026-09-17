@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M2 — environment, secrets and the script API
+
+#### Added
+
+- **`env_files:`** reads `.env` files, with `--env <profile>` selecting
+  `.env.<profile>`. Precedence, lowest first: config `env:`, each file in order, the
+  environment shlane was started with, the lane's `env:`, the step's `env:`. A file
+  whose path contains an unknown variable is skipped rather than failing.
+- **Secret masking.** Values whose names end in `_TOKEN`, `_SECRET`, `_PASSWORD`,
+  `_KEY` or `_CREDENTIALS`, values listed under `secrets:`, and anything a script
+  passes to `secret()` are replaced with `***` in the echoed command, the command's
+  own stdout and stderr, error messages, the summary and the JSON stream.
+- **Step outputs.** A step with an `id:` publishes `stdout`, `stderr` and `code`,
+  readable as `${steps.<id>.<key>}` or `output(id, key)`.
+- **A real script API**: `run()` (which now stops the lane on failure), `try_run()`,
+  `capture()`, `param_or()`, `has_param()`, `set_env()`, `set_output()`, `output()`,
+  `secret()` and `ui_message()` / `ui_success()` / `ui_error()`. `run()` returns a
+  `CmdResult` with `.stdout`, `.stderr`, `.code` and `.success`.
+- **`--json`**, **`-v/--verbose`** and **`-q/--quiet`**.
+- **Ctrl-C** stops the running step, runs the `error` hooks and exits `130`.
+
+#### Fixed
+
+- **A lane's `env:` was parsed and then ignored.**
+- **`print()` output was not masked**, so a secret a script printed reached the
+  terminal in full.
+- **An interrupted or timed-out step could outlive shlane.** Killing `sh` left what it
+  had started running and holding the pipes shlane was reading, so shlane waited for
+  the process it thought it had stopped — a `sleep 30` step took the full 30 seconds
+  to "stop". Every step now runs in its own process group, and shlane forwards Ctrl-C
+  to it.
+- **The summary printed in `--json` and `--quiet` modes**, mixing human output into
+  the event stream.
+
+#### Changed
+
+- `run()` in a script now raises on a non-zero exit instead of returning the code;
+  use `try_run()` for the old behaviour. It returns `CmdResult`, not an integer.
+- Command output is piped so it can be masked. It is still streamed line by line, but
+  a command that colours its output only for a terminal will now see a pipe.
+- The plan called for `tracing`; the events are emitted directly instead. A CLI needs
+  a documented, stable event stream more than a subscriber stack.
+
 ### Milestone M1 — config schema v1 and the commands around it
 
 #### Added

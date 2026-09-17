@@ -1,7 +1,7 @@
 //! Rhai engine construction.
 
 use super::builtins;
-use crate::runtime::context::SharedFrame;
+use super::builtins::Runtime;
 use rhai::Engine;
 
 /// Bounds that stop a runaway script from hanging a CI job. Generous enough
@@ -10,7 +10,7 @@ const MAX_OPERATIONS: u64 = 10_000_000;
 const MAX_STRING_SIZE: usize = 10 * 1024 * 1024;
 const MAX_ARRAY_SIZE: usize = 100_000;
 
-pub fn build(frame: &SharedFrame) -> Engine {
+pub fn build(runtime: &Runtime) -> Engine {
     let mut engine = Engine::new();
     engine.set_max_operations(MAX_OPERATIONS);
     engine.set_max_string_size(MAX_STRING_SIZE);
@@ -20,12 +20,15 @@ pub fn build(frame: &SharedFrame) -> Engine {
     // incorrect", because Rhai uses those overloads for value-to-string
     // conversion -- which is what v0.1.0 did, and why the shipped example's
     // script never actually ran.
-    engine.on_print(|text| println!("{text}"));
-    engine.on_debug(|text, source, pos| match source {
-        Some(source) => eprintln!("{source} @ {pos:?}: {text}"),
-        None => eprintln!("{pos:?}: {text}"),
+    // Routed through the UI so secrets are masked and --quiet/--json apply.
+    let ui = runtime.ui.clone();
+    engine.on_print(move |text| ui.say(text));
+    let ui = runtime.ui.clone();
+    engine.on_debug(move |text, source, pos| match source {
+        Some(source) => ui.error(&format!("{source} @ {pos:?}: {text}")),
+        None => ui.error(&format!("{pos:?}: {text}")),
     });
 
-    builtins::register(&mut engine, frame);
+    builtins::register(&mut engine, runtime);
     engine
 }

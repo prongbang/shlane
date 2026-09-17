@@ -6,10 +6,14 @@
 version: 1
 
 # Environment variables handed to every command in every lane.
-# Keep secrets out of this file — read them from the environment instead
-# (env_files and secret masking arrive in M2, docs/plan/10-secrets-and-env.md).
+# Keep secrets out of this file: put them in .env (git-ignored) instead.
+# Anything named *_TOKEN, *_SECRET, *_PASSWORD, *_KEY or *_CREDENTIALS is
+# masked in everything shlane prints.
 env:
   APP_ENV: "production"
+env_files:
+  - .env
+  - .env.${SHLANE_PROFILE}
 
 # Rhai functions shared by every lane.
 script: |-
@@ -49,6 +53,8 @@ lanes:
 
   deploy:
     description: "Deploy to a target environment"
+    env:
+      DEPLOY_STARTED_BY: shlane
     params:
       target:
         type: string

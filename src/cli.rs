@@ -26,6 +26,22 @@ pub struct Cli {
     #[arg(short = 'C', long, global = true, value_name = "DIR")]
     cwd: Option<PathBuf>,
 
+    /// Show more detail
+    #[arg(short = 'v', long, global = true, conflicts_with = "quiet")]
+    verbose: bool,
+
+    /// Only report errors
+    #[arg(short = 'q', long, global = true)]
+    quiet: bool,
+
+    /// Emit one JSON event per line instead of human-readable output
+    #[arg(long, global = true)]
+    json: bool,
+
+    /// Select `.env.<profile>`
+    #[arg(long, global = true, value_name = "PROFILE")]
+    env: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -77,6 +93,15 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         None => env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     };
     let file = cli.file.clone();
+    let verbosity = if cli.quiet {
+        runtime::Verbosity::Quiet
+    } else if cli.verbose {
+        runtime::Verbosity::Verbose
+    } else {
+        runtime::Verbosity::Normal
+    };
+    let profile = cli.env.clone();
+    let json = cli.json;
 
     match cli.command {
         Commands::Run {
@@ -91,7 +116,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 &found.root,
                 &name,
                 params,
-                runtime::Options { dry_run },
+                runtime::Options {
+                    dry_run,
+                    verbosity,
+                    json,
+                    profile,
+                },
             )
         }
         Commands::List => {
