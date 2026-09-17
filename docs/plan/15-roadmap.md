@@ -75,7 +75,7 @@
 > ยังไม่ได้ verify: `play_store` เทสเฉพาะรูปร่าง request (unit test) การคุยกับ Google
 > จริงต้องมี service account — เป็นงาน e2e
 
-## M5 — iOS ✅ เสร็จแล้ว (บางส่วน)
+## M5 — iOS ✅ เสร็จแล้ว (ยังไม่ได้ verify กับ Xcode จริง)
 
 - `build_ios`, `test_ios` + parse `.xcresult`
 - `keychain`, `setup_ci`
@@ -87,9 +87,7 @@
 > ทำแล้ว: `build_ios` (พร้อมสร้าง ExportOptions.plist), `test_ios`, `keychain`,
 > `testflight` (ผ่าน altool), `asc_request` (ES256 JWT ด้วย ring)
 >
-> **ยังไม่ได้ทำ:**
-> - `codesign_sync` / match — ทำแค่ทางเลือก C (API key + `-allowProvisioningUpdates`)
->   ทีมที่ใช้ match อยู่ยังย้ายมาไม่ได้ นี่คือ blocker ที่เหลือจริงๆ
+> - ~~`codesign_sync` / match~~ ✅ ทำแล้วใน M6 (read-only — อ่าน match repo เดิมได้)
 > - ~~แปลง `.xcresult` เป็น JUnit~~ ✅ ทำแล้ว (`test_ios` + `junit:`) — parser เขียนแบบ
 >   ทนต่อ schema ที่เปลี่ยน เทสกับ fixture ที่นี่ ส่วนของจริงให้ job บน macOS runner
 >   (`examples/ios-sample`) เป็นคนยืนยัน และเก็บ output ดิบของ `xcresulttool` เป็น artifact
