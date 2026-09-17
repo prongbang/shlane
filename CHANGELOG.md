@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as a `# TODO` comment rather than dropped, and it says so loudly when a conditional
   block is flattened — those steps now run unconditionally.
 
+#### Added later in M6
+
+- **`codesign_sync`** reads an existing fastlane `match` repository: clone, decrypt,
+  import the certificate into a keychain, install the profile. This is the blocker that
+  kept a team with a `match` repository from moving.
+  - Decryption is OpenSSL-compatible and done in-process rather than by shelling out.
+    macOS ships LibreSSL under the name `openssl`, and the differences there are
+    exactly what has broken `match` for people before. Both the current `-md sha256`
+    and the older `-md md5` form are read, and the implementation is tested against
+    files real OpenSSL produced.
+  - **Read-only.** `match` also creates and revokes certificates; getting that wrong
+    takes away a team's ability to ship. Issuing stays with `match`.
+  - `install: false` fetches and decrypts without touching a keychain, which is also
+    how it is tested on Linux.
+
 #### Changed
 
 - Actions are looked up through a registry built per run, since which actions exist now

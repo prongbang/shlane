@@ -2143,3 +2143,179 @@ fn migrate_says_when_there_is_no_fastfile() {
         .assert_code(3)
         .assert_stderr_contains("no config file found");
 }
+
+// ---------------------------------------------------------------------------
+// M6: reading an existing fastlane match repository
+// ---------------------------------------------------------------------------
+
+/// A provisioning profile encrypted by real OpenSSL with "match-passphrase",
+/// the way `match` writes them.
+const MATCH_PROFILE: &str = "U2FsdGVkX1/15/pI5yH7uEFJbz1lY8Z2zvhRPWDrZUk1kEHiEQoZTp1vLnNUHa/svMJauo0/VXpgWtQZwC0+V19MbR4pLqblubwkZRRR9cC2/72dvBChjOqAVI8gM8lsCDWTpjn2twg0xEjGo9uqGSDMkzTjIyPDhRNQDO/X9ZeM4CzklQCEYJstMxSv3Ix2t8/UMJFKVo2wDEVjwxuxCt9neGQWYHVFLumnktDtHL9ICriotLsZ9kAhH2UivTiq9WOXtgLkDn/whXPq+2tzXXBrpa7GE0ym7un43kd4aro33QLg9q3DkjZ2c0L1TULGrF/oo+8/ugg+Q6FpFi9ZZJtVkc4KynxFX4pvi2fjTLVf7KT+P7rKi418+qJhWytIdb36qMCKQMiXASdUa3l+pumYZh6G0ZPzc9HTOjXaN5mq4WmmKN5my+W3tWBPtSM1LgK8n7G9Qt6484ENuGt1YZlqzMSt5hJ3UarwksiFlQw=";
+
+const MATCH_P12: &str = "U2FsdGVkX18sELh2Kwcyo4rbTLbVWUPe0waKGQDGRk36E1qDgz6hxYgC1DN+1vzJ";
+
+/// Build a git repository shaped like the one `match` maintains.
+fn write_match_repo(sandbox: &Sandbox, dir: &str) {
+    sandbox.write(
+        &format!("{dir}/profiles/appstore/AppStore_com.example.app.mobileprovision"),
+        MATCH_PROFILE,
+    );
+    sandbox.write(&format!("{dir}/certs/distribution/ABC123.p12"), MATCH_P12);
+    sandbox.write(&format!("{dir}/certs/distribution/ABC123.cer"), MATCH_P12);
+
+    for args in [
+        vec!["init", "-q", "-b", "master", "."],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "shlane test"],
+        vec!["config", "commit.gpgsign", "false"],
+        vec!["add", "-A"],
+        vec!["commit", "-qm", "certificates"],
+    ] {
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(sandbox.path().join(dir))
+            .output()
+            .expect("git should run");
+        assert!(status.status.success(), "git {args:?} failed");
+    }
+}
+
+#[test]
+fn codesign_sync_reads_a_match_repository() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  signing:
+    steps:
+      - id: certs
+        action: codesign_sync
+        with:
+          git_url: ./certificates
+          type: appstore
+          app_identifier: com.example.app
+          passphrase: match-passphrase
+          install: false
+      - run: echo "profile ${steps.certs.uuid} team ${steps.certs.team_id}"
+"#,
+    );
+    write_match_repo(&sandbox, "certificates");
+
+    let run = sandbox.run(&["run", "signing"]);
+    run.assert_code(0)
+        .assert_stdout_contains("AppStore com.example.app")
+        .assert_stdout_contains("profile 1a2b3c4d-0000-1111-2222-333344445555 team ABCDE12345");
+
+    // The decrypted files are where the step said they are.
+    let decrypted = sandbox
+        .path()
+        .join(".shlane/codesign-out/1a2b3c4d-0000-1111-2222-333344445555.mobileprovision");
+    assert!(decrypted.is_file(), "the profile was not written");
+
+    // A real profile is a signed container, so it is not valid UTF-8 throughout.
+    let contents = fs::read(&decrypted).expect("readable");
+    assert!(
+        contents
+            .windows(16)
+            .any(|window| window == b"<key>UUID</key>\n"),
+        "the decrypted profile does not look like a plist"
+    );
+}
+
+#[test]
+fn a_wrong_match_passphrase_is_reported_clearly() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  signing:
+    steps:
+      - action: codesign_sync
+        with:
+          git_url: ./certificates
+          app_identifier: com.example.app
+          passphrase: not-the-passphrase
+          install: false
+"#,
+    );
+    write_match_repo(&sandbox, "certificates");
+
+    let run = sandbox.run(&["run", "signing"]);
+    run.assert_code(1).assert_stderr_contains("passphrase");
+    assert!(
+        !run.stderr.contains("not-the-passphrase"),
+        "the passphrase leaked:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn codesign_sync_says_when_the_app_is_not_in_the_repository() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  signing:
+    steps:
+      - action: codesign_sync
+        with:
+          git_url: ./certificates
+          app_identifier: com.example.other
+          passphrase: match-passphrase
+          install: false
+"#,
+    );
+    write_match_repo(&sandbox, "certificates");
+
+    sandbox
+        .run(&["run", "signing"])
+        .assert_code(1)
+        .assert_stderr_contains("no appstore profile for com.example.other");
+}
+
+#[test]
+fn codesign_sync_updates_a_clone_it_already_has() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  signing:
+    steps:
+      - action: codesign_sync
+        with:
+          git_url: ./certificates
+          app_identifier: com.example.app
+          passphrase: match-passphrase
+          install: false
+"#,
+    );
+    write_match_repo(&sandbox, "certificates");
+
+    sandbox.run(&["run", "signing"]).assert_code(0);
+    // The second run takes the other path through fetch().
+    sandbox
+        .run(&["run", "signing"])
+        .assert_code(0)
+        .assert_stdout_contains("Updating");
+}
+
+#[test]
+fn installing_without_macos_says_so_rather_than_failing_obscurely() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  signing:
+    steps:
+      - action: codesign_sync
+        with:
+          git_url: ./certificates
+          app_identifier: com.example.app
+          passphrase: match-passphrase
+"#,
+    );
+    write_match_repo(&sandbox, "certificates");
+
+    let run = sandbox.run(&["run", "signing"]);
+    if cfg!(target_os = "macos") {
+        // On macOS it gets as far as the keychain, which this test has not set up.
+        run.assert_code(1);
+    } else {
+        run.assert_code(1).assert_stderr_contains("needs macOS");
+    }
+}

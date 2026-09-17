@@ -5,6 +5,7 @@
 //! reports what it produced, so later steps can use it.
 
 pub mod asc;
+pub mod codesign;
 pub mod context;
 pub mod core;
 pub mod google;

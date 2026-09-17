@@ -227,6 +227,7 @@ lanes:
 | `keychain` | Create, unlock or delete a keychain |
 | `testflight` | Upload a build to TestFlight |
 | `asc_request` | Any App Store Connect API call, authenticated |
+| `codesign_sync` | Read certificates and profiles from a fastlane `match` repository |
 
 Scripts can call the same actions:
 
@@ -303,10 +304,37 @@ lanes:
 part of `gym` people do not notice they are getting until they try to do without it —
 and finds the `.ipa` afterwards.
 
-Signing goes through Xcode's own `-allowProvisioningUpdates` with an App Store Connect
-key. A synced certificate store like fastlane's `match` is not implemented; if your
-team depends on one, this is the gap that matters
-([`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md) weighs the options).
+There are two ways to sign. Xcode's own `-allowProvisioningUpdates` with an App Store
+Connect key needs no certificate store at all. If your team already has a fastlane
+`match` repository, `codesign_sync` reads it:
+
+```yaml
+      - id: certs
+        action: codesign_sync
+        with:
+          git_url: git@github.com:acme/certificates.git
+          type: appstore            # or adhoc, development, enterprise
+          app_identifier: com.example.app
+          passphrase: ${MATCH_PASSWORD}
+          keychain: shlane-ci.keychain-db
+          keychain_password: ${KEYCHAIN_PASSWORD}
+      - run: echo "signing with ${steps.certs.name} (team ${steps.certs.team_id})"
+```
+
+It clones the repository, decrypts what it needs, imports the certificate into a
+keychain and installs the profile where Xcode looks for it. Decryption is
+OpenSSL-compatible and done in-process — macOS ships LibreSSL under the name `openssl`,
+and the differences there are exactly what has broken `match` for people before. Both
+the current `-md sha256` and the older `-md md5` form are read, so a repository
+encrypted years ago still opens.
+
+**It is read-only.** `match` can also create and revoke certificates; getting that
+wrong takes away a team's ability to ship. Keep using `match` for issuing certificates,
+and let shlane consume the repository.
+
+Pass `install: false` to fetch and decrypt without touching a keychain — useful on
+Linux, or to inspect what a repository contains. The clone and the decrypted files live
+under `.shlane/`, which belongs in `.gitignore`.
 
 `testflight` uploads with `xcrun altool`, writing the `.p8` to a directory it points
 `API_PRIVATE_KEYS_DIR` at and deleting it afterwards. `asc_request` signs an ES256
@@ -316,7 +344,8 @@ action for are still reachable.
 **These need macOS and Xcode.** What to run is decided by functions that are tested
 here; the round trip is not, and needs a machine with Xcode and a real Apple account.
 `test_ios` runs the tests and reports the `.xcresult` path, but does not yet convert it
-to JUnit the way `test_android` gets JUnit from Gradle for free.
+to JUnit the way `test_android` gets JUnit from Gradle for free. `codesign_sync` is the
+exception: its decryption is tested against files real OpenSSL produced.
 
 ## Plugins
 

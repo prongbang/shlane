@@ -28,6 +28,7 @@ pub fn all() -> Vec<Box<dyn Action>> {
         Box::new(android::BuildAndroid),
         Box::new(android::TestAndroid),
         Box::new(android::SignAndroid),
+        Box::new(crate::actions::codesign::sync::CodesignSync),
         Box::new(ios::BuildIos),
         Box::new(ios::TestIos),
         Box::new(ios::Keychain),

@@ -79,6 +79,12 @@ output: `ipa`, `dsym`, `archive`, `app_path`
 **ข้อเสนอ: ทำ C ก่อน (M5) → A ทีหลัง (M6+)**
 เพราะ C ครอบคลุม CI สมัยใหม่ส่วนใหญ่ และให้ value เร็วสุด ส่วน A เป็นตัวชี้ขาดว่าทีมใหญ่จะย้ายมาได้ไหม
 
+> **ทำทั้ง C และ A แล้ว (M5/M6):** `build_ios` ใช้ `-allowProvisioningUpdates` (C) และ
+> `codesign_sync` อ่าน match repo เดิมได้ (A) แบบ **read-only** — ไม่ออกและไม่เพิกถอน
+> certificate เพราะทำพลาดแล้วทีมเสียความสามารถในการ ship การถอดรหัสทำใน process เอง
+> (ไม่เรียก `openssl` CLI เพราะ macOS ใช้ LibreSSL ซึ่งเคยทำให้ match พังมาแล้ว)
+> รองรับทั้ง `-md sha256` และ `-md md5` ของ repo เก่า
+
 ## App Store Connect API
 
 ทั้ง `testflight` และ `appstore` ต้องใช้ JWT ที่เซ็นด้วย ES256 จาก `.p8` key
@@ -104,7 +110,7 @@ ios:
 | `keychain` | ✅ ทำแล้ว |
 | `testflight` | ✅ ทำแล้ว (ผ่าน `xcrun altool`) |
 | `asc_request` | ✅ ทำแล้ว (เรียก ASC API อะไรก็ได้ ด้วย ES256 JWT) |
-| `codesign_sync` (match) | ❌ ยังไม่ทำ — ใช้ทางเลือก C ไปก่อน |
+| `codesign_sync` (match) | ✅ ทำแล้ว (read-only — อ่าน match repo เดิมได้ ไม่ออก/เพิกถอน certificate) |
 | `appstore` (deliver) | ❌ ยังไม่ทำ (M7) |
 
 ## ความเสี่ยง

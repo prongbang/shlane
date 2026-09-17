@@ -109,7 +109,7 @@
 > **ยังไม่ทำ:**
 > - ดึง plugin จาก git host (`source: github:...`) — ต้องมี installer ที่ตรวจ checksum ก่อน
 > - Rhai module plugin (ทางเลือก B)
-> - `codesign_sync` ที่อ่าน match repo เดิม — ยังเป็น blocker ของทีมที่ใช้ match
+> - ~~`codesign_sync` ที่อ่าน match repo เดิม~~ ✅ ทำแล้ว (read-only)
 > - GitHub Action wrapper + Homebrew tap
 
 ## M7 — 1.0
