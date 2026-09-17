@@ -96,9 +96,21 @@ fn check_step(config: &Config, owner: &str, step: &Step, problems: &mut Vec<Stri
                 problems.push(message);
             }
         }
-        StepKind::Action(name) => problems.push(format!(
-            "'{owner}' uses action '{name}', but actions are not implemented yet (planned for M3, see docs/plan/06-actions-core.md)"
-        )),
+        StepKind::Action { name, with } => match crate::actions::find(name) {
+            Some(action) => {
+                for problem in crate::actions::check_args(action.as_ref(), with) {
+                    problems.push(format!("'{owner}': {problem}"));
+                }
+            }
+            None => {
+                let mut message = format!("'{owner}' uses action '{name}', which does not exist");
+                let known = crate::actions::names();
+                if !known.is_empty() {
+                    let _ = write!(message, " (try: {})", known.join(", "));
+                }
+                problems.push(message);
+            }
+        },
         StepKind::Run(_) | StepKind::Script(_) => {}
     }
 }
@@ -246,15 +258,6 @@ mod tests {
             "lanes:\n  a:\n    steps:\n      - lane: b\n      - lane: c\n  b:\n    steps:\n      - lane: d\n  c:\n    steps:\n      - lane: d\n  d: {}\n",
         ));
         assert!(problems.is_empty(), "{problems:?}");
-    }
-
-    #[test]
-    fn actions_are_reported_as_not_implemented() {
-        let problems = check(&config(
-            "lanes:\n  build:\n    steps:\n      - action: build_ios\n",
-        ));
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("not implemented yet"), "{problems:?}");
     }
 
     #[test]

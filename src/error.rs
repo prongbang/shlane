@@ -87,6 +87,10 @@ pub enum ShlaneError {
         lane: String,
         step: String,
     },
+    Action {
+        action: String,
+        message: String,
+    },
 }
 
 impl ShlaneError {
@@ -99,9 +103,10 @@ impl ShlaneError {
             | Self::UndefinedVariable { .. }
             | Self::UnterminatedVariable { .. } => exit_code::CONFIG_INVALID,
             Self::ShellUnavailable { .. } => exit_code::TOOL_MISSING,
-            Self::StepFailed { .. } | Self::Script { .. } | Self::StepTimedOut { .. } => {
-                exit_code::LANE_FAILED
-            }
+            Self::StepFailed { .. }
+            | Self::Script { .. }
+            | Self::StepTimedOut { .. }
+            | Self::Action { .. } => exit_code::LANE_FAILED,
             Self::ParamInvalid { .. } => exit_code::PARAMS_INVALID,
             Self::ConfigProblems { .. } => exit_code::CONFIG_INVALID,
             Self::LanePrivate { .. } => exit_code::NOT_FOUND,
@@ -202,6 +207,9 @@ impl fmt::Display for ShlaneError {
                     }
                 }
                 Ok(())
+            }
+            Self::Action { action, message } => {
+                write!(f, "action '{action}' failed: {message}")
             }
             Self::Interrupted { lane, step } => write!(
                 f,

@@ -77,6 +77,16 @@ pub struct ActionOutput(pub HashMap<String, Value>);   // ไหลเข้า 
 | `download` | `download` |
 | `template_render` | `erb` (ใช้ template engine ง่ายๆ แทน ERB) |
 
+## สถานะ (M3 — ทำแล้ว)
+
+`sh`, `ensure_env_vars`, `git_status_clean`, `git_branch`, `git_commit`, `git_tag`,
+`git_push`, `last_git_tag`, `changelog_from_commits`, `read_version`, `bump_version`,
+`http_request`, `notify_slack`
+
+หมายเหตุจากการ implement: `--dry-run` ให้ส่วนที่ "อ่าน" ของ action รันจริง (git status,
+git describe, อ่านไฟล์เวอร์ชัน) และข้ามเฉพาะส่วนที่ "เปลี่ยน" — dry-run ที่คืนผลปลอม
+จะรายงานปัญหาที่ไม่มีจริงและกลบปัญหาที่มีจริง
+
 ## ลำดับความสำคัญ
 
 จัดลำดับตาม "ถ้าไม่มีตัวนี้ ก็ลบ Gemfile ไม่ได้":

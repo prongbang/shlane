@@ -158,8 +158,10 @@ pub enum StepKind {
         name: String,
         with: BTreeMap<String, String>,
     },
-    /// Parsed so the error can say what is going on; not runnable yet.
-    Action(String),
+    Action {
+        name: String,
+        with: BTreeMap<String, String>,
+    },
 }
 
 impl Step {
@@ -175,7 +177,7 @@ impl Step {
             StepKind::Run(command) => truncate(command, 48),
             StepKind::Script(_) => "script".to_string(),
             StepKind::Lane { name, .. } => format!("lane {name}"),
-            StepKind::Action(name) => format!("action {name}"),
+            StepKind::Action { name, .. } => name.clone(),
         }
     }
 }
@@ -272,7 +274,10 @@ impl RawStep {
                 name: self.lane.unwrap_or_default(),
                 with: stringify_map(self.with)?,
             },
-            ["action"] => StepKind::Action(self.action.unwrap_or_default()),
+            ["action"] => StepKind::Action {
+                name: self.action.unwrap_or_default(),
+                with: stringify_map(self.with)?,
+            },
             [] => return Err("a step needs one of `run`, `script`, `lane` or `action`".to_string()),
             several => {
                 return Err(format!(

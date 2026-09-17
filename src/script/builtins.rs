@@ -37,6 +37,7 @@ pub fn register(engine: &mut Engine, runtime: &Runtime) {
     register_env(engine, runtime.clone());
     register_commands(engine, runtime.clone());
     register_outputs(engine, runtime.clone());
+    register_actions(engine, runtime.clone());
     register_ui(engine, runtime.clone());
 }
 
@@ -177,6 +178,82 @@ fn register_outputs(engine: &mut Engine, runtime: Runtime) {
     engine.register_fn("output", move |id: &str, key: &str| -> String {
         outputs.borrow().get(id, key).cloned().unwrap_or_default()
     });
+}
+
+/// `action("git_tag", #{ name: "v1.0.0" })`, so a script can reach the same
+/// actions a step can.
+fn register_actions(engine: &mut Engine, runtime: Runtime) {
+    let inner = runtime.clone();
+    engine.register_fn(
+        "action",
+        move |name: &str, args: rhai::Map| -> Fallible<rhai::Map> {
+            run_action(&inner, name, args)
+        },
+    );
+
+    let inner = runtime;
+    engine.register_fn("action", move |name: &str| -> Fallible<rhai::Map> {
+        run_action(&inner, name, rhai::Map::new())
+    });
+}
+
+fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::Map> {
+    let Some(action) = crate::actions::find(name) else {
+        return Err(format!(
+            "no such action '{name}' (try: {})",
+            crate::actions::names().join(", ")
+        )
+        .into());
+    };
+
+    let provided: std::collections::BTreeMap<String, String> = args
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+    let problems = crate::actions::check_args(action.as_ref(), &provided);
+    if !problems.is_empty() {
+        return Err(problems.join("; ").into());
+    }
+
+    let args = crate::actions::with_defaults(action.as_ref(), &provided);
+    for spec in action.schema() {
+        if spec.sensitive {
+            if let Some(value) = args.get(spec.name) {
+                runtime.secrets.borrow_mut().add(value);
+            }
+        }
+    }
+
+    // Copy what the action needs and drop the borrow: it may run for minutes.
+    let (lane, env, workdir, dry_run) = {
+        let frame = runtime.frame.borrow();
+        (
+            frame.lane.clone(),
+            frame.env.clone(),
+            frame.workdir.clone(),
+            frame.dry_run,
+        )
+    };
+
+    let mut ctx = crate::actions::context::ActionContext {
+        lane,
+        env: &env,
+        workdir,
+        dry_run,
+        ui: runtime.ui.clone(),
+        secrets: runtime.secrets.clone(),
+    };
+
+    let output = action
+        .run(&mut ctx, &args)
+        .map_err(|err| EvalAltResult::ErrorSystem("action".into(), Box::new(err)))?;
+
+    Ok(output
+        .0
+        .into_iter()
+        .map(|(key, value)| (key.into(), rhai::Dynamic::from(value)))
+        .collect())
 }
 
 fn register_ui(engine: &mut Engine, runtime: Runtime) {

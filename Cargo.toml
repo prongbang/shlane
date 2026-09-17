@@ -2,7 +2,8 @@
 name = "shlane"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.74"
+# Raised from 1.74 by ureq, which needs 1.85.
+rust-version = "1.85"
 description = "A fastlane-like automation tool written in Rust with Rhai scripting support"
 authors = ["prongbang"]
 license = "Apache-2.0"
@@ -17,6 +18,7 @@ clap_complete = "4.5"
 rhai = { version = "1.21", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+ureq = { version = "3.2.1", features = ["rustls"] }
 
 # Only needed to stop a timed-out step's whole process group.
 [target.'cfg(unix)'.dependencies]

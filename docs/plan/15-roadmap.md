@@ -43,12 +43,18 @@
 > ส่วน logging ใช้ `ui` module ของตัวเองแทน `tracing` (CLI ต้องการ event stream ที่นิ่ง
 > มากกว่า subscriber stack)
 
-## M3 — Action framework + action กลาง
+## M3 — Action framework + action กลาง ✅ เสร็จแล้ว
 
 - `trait Action` + registry + `shlane action list/show`
 - action P0 ตาม [06](06-actions-core.md): `sh`, `git_*`, `bump_version`, `read_version`, `notify_slack`, `ensure_env_vars`, `http_request`
 
 **เสร็จเมื่อ:** lane "bump version + commit + tag + push + แจ้ง Slack" ทำได้โดยไม่ต้องเขียน shell เลย
+
+> ทำแล้ว 13 action และ `action()` ใน Rhai ด้วย ส่วน `call_lane()` ยังไม่ทำ (ต้องเรียก
+> executor ซ้อน) — ใช้ step `lane:` แทน
+>
+> เปลี่ยนจากแผน: ใช้ `ureq` แทน `reqwest` (CLI แบบ blocking ไม่ต้องแบก async runtime)
+> ผลคือ MSRV ขยับ 1.74 → 1.85 และ binary 3.6 → 5.4 MB
 
 ## M4 — Android
 

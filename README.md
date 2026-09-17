@@ -55,6 +55,7 @@ shlane run deploy target=staging
 | `shlane list` | Show every lane, its description and its parameters |
 | `shlane validate` | Check the config without running anything |
 | `shlane init` | Write a starter config, guessing the project type |
+| `shlane action list` / `shlane action show <name>` | The built-in actions and their arguments |
 | `shlane completions <shell>` | Print a shell completion script |
 
 | Flag | What it does |
@@ -105,8 +106,8 @@ A single ordered `steps:` list that can also mix in actions is planned
 
 ### A step
 
-A step is one of `run:` (a shell command), `script:` (Rhai) or `lane:` (another lane).
-`action:` parses but is not implemented yet — it is M3 on the roadmap.
+A step is one of `run:` (a shell command), `action:` (a built-in), `script:` (Rhai) or
+`lane:` (another lane).
 
 ```yaml
 steps:
@@ -119,6 +120,10 @@ steps:
     timeout: 20m            # 30, 30s, 20m, 1h
     retry: 2                # extra attempts after the first
     continue_on_error: false
+
+  - action: git_tag         # a built-in
+    with:
+      name: "v1.2.3"
 
   - lane: notify            # call another lane
     with:
@@ -166,6 +171,64 @@ steps:
     run: cat VERSION
   - run: echo "building ${steps.version.stdout}"   # also .stderr and .code
 ```
+
+## Actions
+
+An action is a named step that knows its own arguments, so `shlane validate` checks it
+before anything runs and `shlane action show` documents it.
+
+```yaml
+lanes:
+  release:
+    steps:
+      - action: git_status_clean
+      - id: bumped
+        action: bump_version
+        with:
+          part: patch
+      - action: git_commit
+        with:
+          message: "release: v${steps.bumped.version}"
+      - action: git_tag
+        with:
+          name: "v${steps.bumped.version}"
+      - action: git_push
+        with:
+          tags: true
+      - action: notify_slack
+        with:
+          webhook: ${SLACK_WEBHOOK}      # masked in every log line
+          text: "Released v${steps.bumped.version}"
+```
+
+| Action | What it does |
+|---|---|
+| `sh` | Run a shell command |
+| `ensure_env_vars` | Fail early when a variable is missing |
+| `git_status_clean` | Fail if the working tree is dirty |
+| `git_branch` | Report the branch and short SHA |
+| `git_commit` / `git_tag` / `git_push` | The release trio |
+| `last_git_tag` | The most recent tag, or `found: false` |
+| `changelog_from_commits` | Commit subjects since a tag |
+| `read_version` / `bump_version` | Cargo.toml, package.json, pubspec.yaml or VERSION |
+| `http_request` | Any HTTP call, with retries |
+| `notify_slack` | Post to an incoming webhook |
+
+Scripts can call the same actions:
+
+```yaml
+script: |
+  let result = action("bump_version", #{ part: "minor" });
+  ui_message("now at " + result.version);
+```
+
+Under `--dry-run`, an action's *reads* still run — `git status`, `git describe`, reading
+a version file — while its *changes* are only described. A dry run that invents results
+reports problems that do not exist and hides the ones that do.
+
+Platform actions (`build_ios`, `gradle`, `play_store`, `testflight`) are M4 and M5;
+see [`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md) and
+[`docs/plan/08-actions-android.md`](docs/plan/08-actions-android.md).
 
 ## Environment and secrets
 
@@ -235,6 +298,7 @@ lanes:
 | `param(key)` / `param_or(key, default)` / `has_param(key)` | string / string / bool | |
 | `env(key)` / `set_env(key, value)` | string / — | `set_env` applies to later steps in the lane |
 | `set_output(key, value)` / `output(id, key)` | — / string | Pass values between steps |
+| `action(name, args)` | map | Run a built-in action and get its outputs |
 | `secret(value)` | — | Hide a value computed at runtime |
 | `ui_message(text)` / `ui_success(text)` / `ui_error(text)` | — | |
 | `print(msg)` | — | Writes to stdout, masked like everything else |
@@ -251,9 +315,9 @@ script: |
   set_output("version", version);
 ```
 
-`action()` and `call_lane()` are not available yet: both need the action registry, so
-they arrive with it in M3 ([`docs/plan/06-actions-core.md`](docs/plan/06-actions-core.md)).
-Use a `lane:` step to call another lane.
+`action(name, #{ ... })` runs a built-in and returns its outputs as a map.
+`call_lane()` is not available: calling a lane from a script means re-entering the
+executor, so use a `lane:` step instead.
 
 ## Exit codes
 
@@ -274,6 +338,8 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 ```
+
+Minimum supported Rust version: **1.85** (required by `ureq`, used by the HTTP actions).
 
 ## Roadmap
 

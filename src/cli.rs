@@ -1,5 +1,6 @@
 //! Command line surface.
 
+mod actions;
 mod init;
 mod list;
 
@@ -47,6 +48,17 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+enum ActionCommands {
+    /// List every action
+    List,
+    /// Show one action's arguments
+    Show {
+        #[arg(help = "Action name")]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Run a lane defined in the config file
     Run {
@@ -78,6 +90,12 @@ enum Commands {
         /// Overwrite an existing config file
         #[arg(long)]
         force: bool,
+    },
+
+    /// Show the built-in actions
+    Action {
+        #[command(subcommand)]
+        command: ActionCommands,
     },
 
     /// Print a shell completion script
@@ -142,6 +160,13 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 problems,
             })
         }
+        Commands::Action { command } => match command {
+            ActionCommands::List => {
+                actions::list();
+                Ok(())
+            }
+            ActionCommands::Show { name } => actions::show(&name),
+        },
         Commands::Init { force } => init::write(&base, force),
         Commands::Completions { shell } => {
             clap_complete::generate(

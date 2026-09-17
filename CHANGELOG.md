@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M3 — the action system
+
+#### Added
+
+- **Actions.** A step can be `action: <name>` with `with:` arguments. Each action
+  declares its arguments, so `shlane validate` catches a missing or misspelled one
+  before anything runs, and `shlane action list` / `shlane action show <name>`
+  document them.
+- **Thirteen actions to start with**: `sh`, `ensure_env_vars`, `git_status_clean`,
+  `git_branch`, `git_commit`, `git_tag`, `git_push`, `last_git_tag`,
+  `changelog_from_commits`, `read_version`, `bump_version`, `http_request` and
+  `notify_slack`. `bump_version` understands `Cargo.toml`, `package.json`,
+  `pubspec.yaml` (including Flutter's `+build` number) and a plain `VERSION` file.
+- **An action's outputs** land under the step's `id`, so `${steps.bumped.version}`
+  works the same way a command's `stdout` does.
+- **`action(name, #{...})` in scripts**, returning the outputs as a map.
+- **Arguments marked sensitive are masked automatically** — a Slack webhook URL never
+  reaches the output, even in an error.
+- HTTP actions retry transport failures and 5xx with a backoff, because CI networks
+  fail often enough that one attempt is not enough.
+
+#### Changed
+
+- **`--dry-run` now runs an action's reads for real** — `git status`, `git describe`,
+  reading a version file — and only describes its changes. Returning invented results
+  for everything made `git_commit` report "nothing to commit" during a dry run of a
+  release that had plenty to commit: a dry run that fabricates results reports problems
+  that do not exist and hides the ones that do.
+- **MSRV is now 1.85**, raised from 1.74 by `ureq`.
+- `ureq` rather than the `reqwest` named in the plan: a blocking CLI does not need to
+  carry an async runtime. Binary size 3.6 MB → 5.4 MB.
+
+#### Fixed
+
+- **`read_version` gave up on `package.json`.** A `?` inside the line loop returned
+  from the whole function on the first line that did not match, so only a file whose
+  very first line held the version was ever read.
+
 ### Milestone M2 — environment, secrets and the script API
 
 #### Added

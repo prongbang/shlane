@@ -393,7 +393,9 @@ impl<'a> Runner<'a> {
         label: &str,
     ) -> Result<()> {
         match &step.kind {
-            StepKind::Run(command) => self.execute_command(phase, lane_name, index, step, command, label),
+            StepKind::Run(command) => {
+                self.execute_command(phase, lane_name, index, step, command, label)
+            }
             StepKind::Script(source) => {
                 if self.options.dry_run {
                     self.ui.say(&format!("Would run script: {label}"));
@@ -415,14 +417,66 @@ impl<'a> Runner<'a> {
                 self.depth -= 1;
                 result
             }
-            StepKind::Action(name) => Err(ShlaneError::Script {
-                lane: lane_name.to_string(),
-                phase: "step",
-                message: format!(
-                    "action '{name}' is not implemented yet (planned for M3, see docs/plan/06-actions-core.md)"
-                ),
-            }),
+            StepKind::Action { name, with } => self.execute_action(step, name, with),
         }
+    }
+
+    /// Run an action step: resolve its arguments, hand it a context, and store
+    /// what it produced under the step's id.
+    fn execute_action(
+        &mut self,
+        step: &Step,
+        name: &str,
+        with: &BTreeMap<String, String>,
+    ) -> Result<()> {
+        let Some(action) = crate::actions::find(name) else {
+            return Err(ShlaneError::Action {
+                action: name.to_string(),
+                message: format!(
+                    "no such action (try: {})",
+                    crate::actions::names().join(", ")
+                ),
+            });
+        };
+
+        let provided = self.interpolate_map(with)?;
+        let args = crate::actions::with_defaults(action.as_ref(), &provided);
+
+        // Arguments the action declares as sensitive are hidden from here on.
+        for spec in action.schema() {
+            if spec.sensitive {
+                if let Some(value) = args.get(spec.name) {
+                    self.secrets.borrow_mut().add(value);
+                }
+            }
+        }
+
+        let env = self.step_env(&step.env)?;
+        let workdir = self.step_workdir(step.workdir.as_deref())?;
+        let (lane, dry_run) = {
+            let frame = self.frame.borrow();
+            (frame.lane.clone(), frame.dry_run)
+        };
+
+        let mut ctx = crate::actions::context::ActionContext {
+            lane,
+            env: &env,
+            workdir,
+            dry_run,
+            ui: self.ui.clone(),
+            secrets: self.secrets.clone(),
+        };
+
+        let output = action.run(&mut ctx, &args)?;
+
+        if let Some(id) = &step.id {
+            let mut outputs = self.outputs.borrow_mut();
+            for (key, value) in output.0 {
+                outputs.set(id, &key, value);
+            }
+        }
+
+        Ok(())
     }
 
     fn execute_command(

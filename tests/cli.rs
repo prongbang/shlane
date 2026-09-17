@@ -819,13 +819,13 @@ fn namespaced_references_resolve() {
 }
 
 #[test]
-fn action_steps_report_that_they_are_not_implemented_yet() {
+fn an_unknown_action_is_reported_by_validate() {
     let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - action: build_ios\n");
 
     sandbox
         .run(&["validate"])
         .assert_code(2)
-        .assert_stderr_contains("not implemented yet");
+        .assert_stderr_contains("does not exist");
 }
 
 #[test]
@@ -1194,4 +1194,311 @@ lanes:
     run.assert_code(130)
         .assert_stderr_contains("interrupted")
         .assert_stdout_contains("error-hook-ran");
+}
+
+// ---------------------------------------------------------------------------
+// M3: actions
+// ---------------------------------------------------------------------------
+
+/// Turn a sandbox into a git repository with one commit.
+fn init_repo(sandbox: &Sandbox) {
+    for args in [
+        vec!["init", "-q", "."],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "shlane test"],
+        vec!["config", "commit.gpgsign", "false"],
+    ] {
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(sandbox.path())
+            .output()
+            .expect("git should run");
+        assert!(status.status.success(), "git {args:?} failed");
+    }
+}
+
+fn git(sandbox: &Sandbox, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(sandbox.path())
+        .output()
+        .expect("git should run");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn action_list_and_show_describe_the_built_ins() {
+    let sandbox = Sandbox::new("lanes: {}\n");
+
+    sandbox
+        .run(&["action", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("git_commit")
+        .assert_stdout_contains("bump_version");
+
+    sandbox
+        .run(&["action", "show", "git_push"])
+        .assert_code(0)
+        .assert_stdout_contains("remote")
+        .assert_stdout_contains("default: origin");
+
+    sandbox
+        .run(&["action", "show", "nope"])
+        .assert_code(1)
+        .assert_stderr_contains("no such action");
+}
+
+#[test]
+fn the_sh_action_reports_what_the_command_printed() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - id: greet
+        action: sh
+        with:
+          command: echo hello-from-action
+      - run: echo saw ${steps.greet.stdout}
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(0)
+        .assert_stdout_contains("saw hello-from-action");
+}
+
+#[test]
+fn ensure_env_vars_fails_before_the_work_starts() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - action: ensure_env_vars
+        with:
+          names: DEFINITELY_NOT_SET_XYZ, ALSO_NOT_SET_XYZ
+      - run: touch should-not-exist
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(1)
+        .assert_stderr_contains("DEFINITELY_NOT_SET_XYZ");
+
+    assert!(
+        !sandbox.path().join("should-not-exist").exists(),
+        "later steps should not have run"
+    );
+}
+
+#[test]
+fn version_actions_read_and_bump() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  release:
+    steps:
+      - id: before
+        action: read_version
+      - id: bumped
+        action: bump_version
+        with:
+          part: minor
+      - run: echo ${steps.before.version} became ${steps.bumped.version}
+"#,
+    );
+    sandbox.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"1.4.2\"\n",
+    );
+
+    sandbox
+        .run(&["run", "release"])
+        .assert_code(0)
+        .assert_stdout_contains("1.4.2 became 1.5.0");
+
+    let written = fs::read_to_string(sandbox.path().join("Cargo.toml")).expect("still readable");
+    assert!(written.contains("version = \"1.5.0\""), "got:\n{written}");
+}
+
+#[test]
+fn bump_version_leaves_the_file_alone_on_a_dry_run() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - action: bump_version\n");
+    sandbox.write("VERSION", "2.0.0\n");
+
+    sandbox
+        .run(&["run", "a", "--dry-run"])
+        .assert_code(0)
+        .assert_stdout_contains("Would bump 2.0.0 to 2.0.1");
+
+    let written = fs::read_to_string(sandbox.path().join("VERSION")).expect("still readable");
+    assert_eq!(written.trim(), "2.0.0");
+}
+
+#[test]
+fn the_release_lane_the_plan_asked_for_works_without_any_shell() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  release:
+    description: "bump, commit, tag"
+    steps:
+      - action: git_status_clean
+      - id: bumped
+        action: bump_version
+        with:
+          part: patch
+      - action: git_commit
+        with:
+          message: "release: ${steps.bumped.version}"
+      - action: git_tag
+        with:
+          name: "v${steps.bumped.version}"
+          message: "release ${steps.bumped.version}"
+      - id: branch
+        action: git_branch
+"#,
+    );
+    sandbox.write("VERSION", "0.9.9\n");
+    init_repo(&sandbox);
+    assert!(Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("git add")
+        .success());
+    assert!(Command::new("git")
+        .args(["commit", "-qm", "initial"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("git commit")
+        .success());
+
+    let run = sandbox.run(&["run", "release"]);
+    run.assert_code(0);
+
+    assert_eq!(
+        fs::read_to_string(sandbox.path().join("VERSION"))
+            .expect("readable")
+            .trim(),
+        "0.9.10"
+    );
+    assert_eq!(git(&sandbox, &["tag", "--list"]), "v0.9.10");
+    assert_eq!(
+        git(&sandbox, &["log", "-1", "--pretty=%s"]),
+        "release: 0.9.10"
+    );
+}
+
+#[test]
+fn git_status_clean_fails_on_a_dirty_tree() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - action: git_status_clean\n");
+    init_repo(&sandbox);
+    sandbox.write("untracked.txt", "hello\n");
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(1)
+        .assert_stderr_contains("uncommitted changes");
+}
+
+#[test]
+fn changelog_and_last_tag_cope_with_a_repository_without_tags() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  notes:
+    steps:
+      - id: tag
+        action: last_git_tag
+      - id: log
+        action: changelog_from_commits
+      - run: echo found=${steps.tag.found} count=${steps.log.count}
+"#,
+    );
+    init_repo(&sandbox);
+    sandbox.write("a.txt", "one\n");
+    Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("git add");
+    Command::new("git")
+        .args(["commit", "-qm", "first change"])
+        .current_dir(sandbox.path())
+        .status()
+        .expect("git commit");
+
+    sandbox
+        .run(&["run", "notes"])
+        .assert_code(0)
+        .assert_stdout_contains("found=false count=1");
+}
+
+#[test]
+fn scripts_can_call_actions() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    script: |
+      let result = action("sh", #{ command: "echo from-script-action" });
+      print("got=" + result.stdout);
+      let bad = action("bump_version", #{ part: "sideways" });
+"#,
+    );
+    sandbox.write("VERSION", "1.0.0\n");
+
+    let run = sandbox.run(&["run", "a"]);
+    run.assert_code(1)
+        .assert_stdout_contains("got=from-script-action");
+    run.assert_stderr_contains("unknown part");
+}
+
+#[test]
+fn a_script_calling_an_unknown_action_says_so() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    script: |\n      action(\"build_ios\", #{});\n");
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(1)
+        .assert_stderr_contains("no such action");
+}
+
+#[test]
+fn a_slack_webhook_never_reaches_the_output() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - action: notify_slack
+        with:
+          webhook: https://hooks.example.invalid/services/SECRET-PATH-12345
+          text: hello
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    // The host does not resolve; what matters is that the URL is not printed.
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    assert!(
+        !everything.contains("SECRET-PATH-12345"),
+        "the webhook leaked:\n{everything}"
+    );
+}
+
+#[test]
+fn http_request_arguments_are_validated_before_running() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  a:\n    steps:\n      - action: http_request\n        with:\n          urll: http://example.com\n",
+    );
+
+    let run = sandbox.run(&["validate"]);
+    run.assert_code(2)
+        .assert_stderr_contains("needs 'url'")
+        .assert_stderr_contains("no argument 'urll'");
 }

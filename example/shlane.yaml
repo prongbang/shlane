@@ -51,6 +51,29 @@ lanes:
       - run: "cargo test"
         name: unit tests
 
+  release:
+    description: "Bump the version, commit and tag — no shell needed"
+    params:
+      part:
+        type: string
+        default: patch
+        values: [major, minor, patch]
+    steps:
+      - action: git_status_clean
+      - id: notes
+        action: changelog_from_commits
+      - id: bumped
+        action: bump_version
+        with:
+          part: ${part}
+      - action: git_commit
+        with:
+          message: "release: v${steps.bumped.version}"
+      - action: git_tag
+        with:
+          name: "v${steps.bumped.version}"
+          message: ${steps.notes.text}
+
   deploy:
     description: "Deploy to a target environment"
     env:
