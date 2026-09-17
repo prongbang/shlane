@@ -355,9 +355,29 @@ action for are still reachable.
 
 **These need macOS and Xcode.** What to run is decided by functions that are tested
 here; the round trip is not, and needs a machine with Xcode and a real Apple account.
-`test_ios` runs the tests and reports the `.xcresult` path, but does not yet convert it
-to JUnit the way `test_android` gets JUnit from Gradle for free. `codesign_sync` is the
-exception: its decryption is tested against files real OpenSSL produced.
+`test_ios` converts the `.xcresult` into JUnit when asked:
+
+```yaml
+      - id: tests
+        action: test_ios
+        with:
+          scheme: Counter
+          destination: "platform=iOS Simulator,name=iPhone 16"
+          junit: build/junit.xml
+```
+
+The report is written even when the suite fails — that is when it matters — and a
+report that could not be produced is a warning, not a failed lane. It needs Xcode 16
+or newer, whose `xcresulttool get test-results tests` is the command it reads.
+
+There is a sample project in [`examples/ios-sample`](examples/ios-sample): a small
+SwiftUI counter with unit tests, as a Swift package rather than a generated
+`.xcodeproj`. The macOS CI job runs it, checks the JUnit report describes the real run,
+and keeps the raw `xcresulttool` output as an artifact — Apple's schema is not ours and
+it moves, so a change should be readable rather than guessed at.
+
+`codesign_sync` is the other part tested against real output: its decryption runs
+against files real OpenSSL produced.
 
 ## Plugins
 

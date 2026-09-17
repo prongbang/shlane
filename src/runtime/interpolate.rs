@@ -23,9 +23,31 @@ pub struct Vars<'a> {
     pub meta: &'a BTreeMap<String, String>,
     /// `steps.<id>.<key>`, from steps that have already run.
     pub outputs: &'a BTreeMap<String, String>,
+    /// During a dry run a step that was skipped has produced nothing, so a
+    /// later reference to its output stands in for itself rather than ending
+    /// the run. Outside a dry run, an unknown output is still an error.
+    pub dry_run: bool,
 }
 
 impl Vars<'_> {
+    /// What to show for a reference that cannot resolve during a dry run.
+    fn placeholder(name: &str) -> String {
+        format!("<{name}>")
+    }
+
+    /// The value to substitute, or nothing if the reference cannot resolve.
+    fn resolve(&self, name: &str) -> Option<String> {
+        if let Some(value) = self.get(name) {
+            return Some(value.clone());
+        }
+        // Only step outputs: a missing parameter is still a mistake worth
+        // catching before the lane runs for real.
+        if self.dry_run && name.starts_with("steps.") {
+            return Some(Self::placeholder(name));
+        }
+        None
+    }
+
     fn get(&self, name: &str) -> Option<&String> {
         if let Some(rest) = name.strip_prefix("params.") {
             return self.params.get(rest);
@@ -39,6 +61,7 @@ impl Vars<'_> {
         if let Some(rest) = name.strip_prefix("steps.") {
             return self.outputs.get(rest);
         }
+
         self.params.get(name).or_else(|| self.env.get(name))
     }
 }
@@ -110,12 +133,12 @@ pub fn interpolate_plain(input: &str, vars: &Vars<'_>) -> Result<String> {
             let reference = &rest[..end];
             let name = reference.strip_suffix(":raw").unwrap_or(reference);
             let value = vars
-                .get(name)
+                .resolve(name)
                 .ok_or_else(|| ShlaneError::UndefinedVariable {
                     name: name.to_string(),
                     source_text: input.to_string(),
                 })?;
-            out.push_str(value);
+            out.push_str(&value);
             i += 2 + end + 1;
             continue;
         }
@@ -155,16 +178,16 @@ pub fn interpolate(input: &str, vars: &Vars<'_>) -> Result<String> {
             };
 
             let value = vars
-                .get(name)
+                .resolve(name)
                 .ok_or_else(|| ShlaneError::UndefinedVariable {
                     name: name.to_string(),
                     source_text: input.to_string(),
                 })?;
 
             if raw {
-                out.push_str(value);
+                out.push_str(&value);
             } else {
-                out.push_str(&quote_for(value, quoting));
+                out.push_str(&quote_for(&value, quoting));
             }
             i += 2 + end + 1;
             continue;
@@ -227,8 +250,27 @@ mod tests {
                 env: &env,
                 meta: &meta,
                 outputs: &outputs,
+                dry_run: false,
             },
         )
+    }
+
+    #[test]
+    fn a_dry_run_stands_in_for_an_output_that_does_not_exist_yet() {
+        let empty = BTreeMap::new();
+        let vars = Vars {
+            params: &empty,
+            env: &empty,
+            meta: &empty,
+            outputs: &empty,
+            dry_run: true,
+        };
+
+        let out = interpolate("echo ${steps.build.ipa}", &vars).expect("should render");
+        assert_eq!(out, "echo '<steps.build.ipa>'");
+
+        // A misspelled parameter is still a mistake, dry run or not.
+        assert!(interpolate("echo ${typo}", &vars).is_err());
     }
 
     #[test]

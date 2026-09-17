@@ -1,0 +1,27 @@
+# Run from this directory on a machine with Xcode:
+#
+#   shlane run test
+#
+# This is the project the macOS CI job uses to check that test_ios really
+# produces a JUnit report from a real .xcresult.
+version: 1
+
+lanes:
+  test:
+    description: "Run the unit tests and write a JUnit report"
+    platform: ios
+    steps:
+      - id: tests
+        action: test_ios
+        with:
+          scheme: Counter
+          destination: "platform=iOS Simulator,name=iPhone 16"
+          result_bundle: build/tests.xcresult
+          junit: build/junit.xml
+      - run: echo "report at ${steps.tests.junit}"
+
+  build:
+    description: "Build the library for a simulator"
+    platform: ios
+    steps:
+      - run: xcodebuild build -scheme Counter -destination 'platform=iOS Simulator,name=iPhone 16'

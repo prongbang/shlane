@@ -31,6 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No Windows binary: the runner still shells out to `sh`, so it would not work there.
   Saying so is better than shipping one that fails on the first step.
 
+### Milestone M5 — iOS, continued
+
+#### Added
+
+- **`test_ios` writes a JUnit report** from the `.xcresult` when given `junit:`. The
+  report is written even when the suite fails, which is when it matters; a report that
+  could not be produced is a warning rather than a failed lane. Needs Xcode 16 or newer.
+- **`examples/ios-sample`**: a small SwiftUI counter with unit tests, as a Swift
+  package rather than a generated `.xcodeproj` — a few readable lines instead of a
+  pbxproj nobody can review. The macOS CI job runs it through shlane, checks the JUnit
+  report describes the real run, and keeps the raw `xcresulttool` output as an
+  artifact, because Apple's schema moves and a change should be readable rather than
+  guessed at.
+
+#### Fixed
+
+- **`build_ios` and `test_ios` demanded a workspace or a project.** A Swift package has
+  neither; `xcodebuild` resolves it from the working directory, and now so do they.
+- **A dry run failed on a reference to a step output that had not been produced.**
+  `${steps.build.ipa}` now stands in for itself during a dry run, so a lane can be
+  checked without running it. A misspelled parameter is still an error, dry run or not.
+
 ### Milestone M6 — plugins and migration
 
 #### Added

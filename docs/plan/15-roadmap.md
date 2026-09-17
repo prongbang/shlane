@@ -90,8 +90,10 @@
 > **ยังไม่ได้ทำ:**
 > - `codesign_sync` / match — ทำแค่ทางเลือก C (API key + `-allowProvisioningUpdates`)
 >   ทีมที่ใช้ match อยู่ยังย้ายมาไม่ได้ นี่คือ blocker ที่เหลือจริงๆ
-> - แปลง `.xcresult` เป็น JUnit — ต้อง parse output ของ `xcresulttool` ซึ่งเช็ค shape
->   ไม่ได้ถ้าไม่มี Xcode การเดาแล้วเขียนไปจะได้ของที่ดูเหมือนเสร็จแต่ใช้ไม่ได้
+> - ~~แปลง `.xcresult` เป็น JUnit~~ ✅ ทำแล้ว (`test_ios` + `junit:`) — parser เขียนแบบ
+>   ทนต่อ schema ที่เปลี่ยน เทสกับ fixture ที่นี่ ส่วนของจริงให้ job บน macOS runner
+>   (`examples/ios-sample`) เป็นคนยืนยัน และเก็บ output ดิบของ `xcresulttool` เป็น artifact
+>   ไว้อ่านเวลา Apple เปลี่ยน schema
 >
 > **ยังไม่ได้ verify:** ทุก action ต้องมี macOS + Xcode — unit test คลุมการประกอบคำสั่ง,
 > plist และ JWT claims แต่ไม่ได้ทดสอบกับของจริง

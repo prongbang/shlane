@@ -106,7 +106,7 @@ ios:
 | action | สถานะ |
 |---|---|
 | `build_ios` | ✅ ทำแล้ว (archive + export + ExportOptions.plist) |
-| `test_ios` | ✅ ทำแล้ว (ยังไม่แปลง xcresult → JUnit) |
+| `test_ios` | ✅ ทำแล้ว + แปลง xcresult → JUnit (ต้อง Xcode 16+) |
 | `keychain` | ✅ ทำแล้ว |
 | `testflight` | ✅ ทำแล้ว (ผ่าน `xcrun altool`) |
 | `asc_request` | ✅ ทำแล้ว (เรียก ASC API อะไรก็ได้ ด้วย ES256 JWT) |

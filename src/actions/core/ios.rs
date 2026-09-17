@@ -193,10 +193,6 @@ impl Action for BuildIos {
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
-        if args.get("workspace").is_none() && args.get("project").is_none() {
-            return Err(ctx.error(self.name(), "give either workspace or project"));
-        }
-
         let scheme = args.get_or("scheme", "");
         let output_dir = ctx.workdir().join(args.get_or("output_dir", "build"));
         let archive = output_dir.join(format!("{scheme}.xcarchive"));
@@ -281,16 +277,16 @@ impl Action for TestIos {
             ArgSpec::new("configuration", "Build configuration").default("Debug"),
             ArgSpec::new("result_bundle", "Where to write the .xcresult")
                 .default("build/tests.xcresult"),
+            ArgSpec::new(
+                "junit",
+                "Also convert the .xcresult into a JUnit report at this path",
+            ),
             ArgSpec::new("code_coverage", "Collect coverage").default("false"),
         ]);
         schema
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
-        if args.get("workspace").is_none() && args.get("project").is_none() {
-            return Err(ctx.error(self.name(), "give either workspace or project"));
-        }
-
         let bundle = ctx
             .workdir()
             .join(args.get_or("result_bundle", "build/tests.xcresult"));
@@ -321,7 +317,14 @@ impl Action for TestIos {
         let command = parts.join(" ");
         if ctx.dry_run {
             ctx.ui.say(&format!("Would run: {command}"));
-            return Ok(ActionOutput::new().with("result_bundle", bundle.display().to_string()));
+            // The paths are known without running anything, so a later step
+            // that refers to them still resolves.
+            let mut output =
+                ActionOutput::new().with("result_bundle", bundle.display().to_string());
+            if let Some(junit) = args.get("junit") {
+                output = output.with("junit", ctx.workdir().join(junit).display().to_string());
+            }
+            return Ok(output);
         }
 
         // The bundle must not already exist, or xcodebuild refuses.
@@ -329,10 +332,75 @@ impl Action for TestIos {
             let _ = fs::remove_dir_all(&bundle);
         }
 
-        ctx.require(&command)?;
+        // Not `require`: a failing test suite is the case where the report
+        // matters most, so it is written before the failure is reported.
+        let outcome = ctx.sh(&command)?;
 
-        Ok(ActionOutput::new().with("result_bundle", bundle.display().to_string()))
+        let mut output = ActionOutput::new().with("result_bundle", bundle.display().to_string());
+
+        if let Some(junit) = args.get("junit") {
+            let path = ctx.workdir().join(junit);
+            match write_junit(ctx, &bundle, &path, args.get_or("scheme", "tests")) {
+                Ok(count) => {
+                    ctx.ui
+                        .say(&format!("{count} test(s) written to {}", path.display()));
+                    output = output
+                        .with("junit", path.display().to_string())
+                        .with("test_count", count.to_string());
+                }
+                // A report that could not be produced must not turn a passing
+                // suite into a failure; it does have to be loud.
+                Err(message) => ctx.ui.warn(&format!("no JUnit report: {message}")),
+            }
+        }
+
+        if !outcome.success {
+            return Err(ctx.error(
+                self.name(),
+                format!(
+                    "the tests failed (exit code {})",
+                    outcome.code.unwrap_or(-1)
+                ),
+            ));
+        }
+
+        Ok(output)
     }
+}
+
+/// Ask `xcresulttool` what happened and write it out as JUnit.
+fn write_junit(
+    ctx: &ActionContext<'_>,
+    bundle: &Path,
+    destination: &Path,
+    suite_name: &str,
+) -> std::result::Result<usize, String> {
+    use crate::report::xcresult;
+
+    // `get test-results tests` is Xcode 16 and newer. An older Xcode has a
+    // different shape entirely, and guessing at it here would be worse than
+    // saying so.
+    let command = format!(
+        "xcrun xcresulttool get test-results tests --path {} --format json",
+        quote(&bundle.display().to_string())
+    );
+    let json = ctx
+        .capture(&command)
+        .map_err(|err| format!("{err} (Xcode 16 or newer is needed for this)"))?;
+
+    let results = xcresult::parse(&json)?;
+    let cases = xcresult::test_cases(&results);
+    if cases.is_empty() {
+        return Err("the result bundle contained no test cases".to_string());
+    }
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
+    }
+    fs::write(destination, xcresult::to_junit(&cases, suite_name))
+        .map_err(|err| format!("{}: {err}", destination.display()))?;
+
+    Ok(cases.len())
 }
 
 pub struct Keychain;
@@ -649,6 +717,15 @@ mod tests {
         );
         assert!(command.contains("-allowProvisioningUpdates"), "{command}");
         assert!(!command.contains("-project"), "{command}");
+    }
+
+    #[test]
+    fn neither_flag_lets_xcodebuild_resolve_the_directory() {
+        // What a Swift package needs: there is no project file to name.
+        let command = archive_command(&args(&[("scheme", "Counter")]), "out.xcarchive");
+        assert!(!command.contains("-project"), "{command}");
+        assert!(!command.contains("-workspace"), "{command}");
+        assert!(command.contains("-scheme 'Counter'"), "{command}");
     }
 
     #[test]

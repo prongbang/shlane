@@ -170,6 +170,7 @@ impl<'a> Runner<'a> {
                 env: &env,
                 meta: &empty,
                 outputs: &empty,
+                dry_run: false,
             };
             if let Ok(value) = interpolate_plain(pattern, &vars) {
                 secret_registry.add(&value);
@@ -616,6 +617,7 @@ impl<'a> Runner<'a> {
             env: &frame.env,
             meta: &meta,
             outputs: &outputs,
+            dry_run: frame.dry_run,
         })
     }
 

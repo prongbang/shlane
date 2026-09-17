@@ -1,6 +1,8 @@
 //! Writing a run's results somewhere a CI can read them
 //! (`docs/plan/11-ci-integration.md`).
 
+pub mod xcresult;
+
 use crate::error::{Result, ShlaneError};
 use std::fmt::Write as _;
 use std::fs;
@@ -205,7 +207,7 @@ fn markdown(lane: &str, steps: &[StepReport]) -> String {
     out
 }
 
-fn escape_xml(text: &str) -> String {
+pub(crate) fn escape_xml(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

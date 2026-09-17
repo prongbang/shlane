@@ -41,6 +41,50 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-features
 
+  ios-sample:
+    name: iOS sample (real xcresult)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Which Xcode
+        run: |
+          xcodebuild -version
+          xcrun xcresulttool version || true
+
+      - run: cargo build --release
+
+      # The point of this job: a real .xcresult, converted by the same code
+      # the unit tests exercise against fixtures.
+      - name: Run the sample's tests through shlane
+        working-directory: examples/ios-sample
+        run: ../../target/release/shlane run test
+
+      - name: Check the JUnit report describes the real run
+        working-directory: examples/ios-sample
+        run: |
+          test -f build/junit.xml || { echo "no JUnit report was written"; exit 1; }
+          cat build/junit.xml
+          grep -q 'testStartsAtZero' build/junit.xml || { echo "the report is missing a test"; exit 1; }
+          grep -q 'failures="0"' build/junit.xml || { echo "the report claims failures"; exit 1; }
+
+      # Apple's schema is not ours, and it moves. Keeping the raw output means
+      # a change can be read rather than guessed at.
+      - name: Keep the raw xcresulttool output
+        if: always()
+        working-directory: examples/ios-sample
+        run: |
+          xcrun xcresulttool get test-results tests \
+            --path build/tests.xcresult --format json > build/xcresulttool.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xcresult-json
+          path: examples/ios-sample/build/xcresulttool.json
+
   example:
     name: example config runs
     runs-on: ubuntu-latest

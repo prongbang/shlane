@@ -1726,15 +1726,42 @@ fn ios_actions_are_registered_and_documented() {
 }
 
 #[test]
-fn build_ios_wants_a_workspace_or_a_project() {
+fn build_ios_lets_xcodebuild_resolve_the_directory() {
+    // A Swift package has neither a .xcodeproj nor a .xcworkspace to name, and
+    // xcodebuild finds it from the working directory.
     let sandbox = Sandbox::new(
         "lanes:\n  a:\n    steps:\n      - action: build_ios\n        with:\n          scheme: MyApp\n",
     );
 
+    let run = sandbox.run(&["run", "a", "--dry-run"]);
+    run.assert_code(0)
+        .assert_stdout_contains("xcodebuild archive");
+    assert!(
+        !run.stdout.contains("-project") && !run.stdout.contains("-workspace"),
+        "neither flag should be passed when neither was given:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_dry_run_survives_a_step_output_that_does_not_exist_yet() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - id: build
+        action: build_ios
+        with:
+          scheme: MyApp
+      - run: echo "shipping ${steps.build.ipa}"
+"#,
+    );
+
     sandbox
-        .run(&["run", "a"])
-        .assert_code(1)
-        .assert_stderr_contains("workspace or project");
+        .run(&["run", "a", "--dry-run"])
+        .assert_code(0)
+        .assert_stdout_contains("<steps.build.ipa>");
 }
 
 #[test]
