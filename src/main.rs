@@ -18,6 +18,17 @@ mod script;
 use clap::Parser;
 use std::process::ExitCode;
 
+/// Put the failure where the CI shows it, as well as in the log.
+fn annotate(message: &str) {
+    let env = std::env::vars().collect();
+    let Some(provider) = runtime::ci::detect(&env) else {
+        return;
+    };
+    if let Some(line) = runtime::ci::annotation(provider, "error", message) {
+        eprintln!("{line}");
+    }
+}
+
 /// Die quietly when a pipe closes, the way every other command-line tool does.
 ///
 /// Rust ignores `SIGPIPE` so that writes return `EPIPE`, but `println!` turns
@@ -41,6 +52,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err}");
+            annotate(&err.to_string());
             ExitCode::from(err.exit_code() as u8)
         }
     }

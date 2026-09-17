@@ -1,3 +1,4 @@
+pub mod ci;
 pub mod context;
 pub mod env;
 pub mod executor;

@@ -5,6 +5,7 @@ mod init;
 mod list;
 mod migrate;
 mod plugins;
+mod show_env;
 
 use crate::config::loader::{self, Discovered};
 use crate::config::validate;
@@ -112,6 +113,13 @@ enum Commands {
     Action {
         #[command(subcommand)]
         command: ActionCommands,
+    },
+
+    /// Show the environment a lane would run with
+    Env {
+        /// Include everything inherited from the process, not just this config
+        #[arg(long)]
+        all: bool,
     },
 
     /// Convert a Fastfile into a shlane.yaml
@@ -231,6 +239,10 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 PluginCommands::Lock => plugins::lock(&found),
                 PluginCommands::Verify => plugins::verify(&found),
             }
+        }
+        Commands::Env { all } => {
+            let found = load(file.as_deref(), &base)?;
+            show_env::show(&found, profile.as_deref(), all)
         }
         Commands::Migrate {
             fastfile,

@@ -2319,3 +2319,120 @@ lanes:
         run.assert_code(1).assert_stderr_contains("needs macOS");
     }
 }
+
+// ---------------------------------------------------------------------------
+// M7: CI integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn env_shows_what_a_lane_would_see_with_secrets_masked() {
+    let sandbox = Sandbox::new(
+        "env:\n  APP_ENV: production\n  API_TOKEN: super-secret-value\nenv_files: [.env]\nlanes:\n  a: {}\n",
+    );
+    sandbox.write(".env", "FROM_FILE=yes\n");
+
+    let run = sandbox.run(&["env"]);
+    run.assert_code(0)
+        .assert_stdout_contains("APP_ENV=production")
+        .assert_stdout_contains("FROM_FILE=yes")
+        .assert_stdout_contains("API_TOKEN=***")
+        .assert_stdout_contains("inherited from the environment");
+
+    assert!(
+        !run.stdout.contains("super-secret-value"),
+        "`shlane env` must not be the easiest way to leak a token:\n{}",
+        run.stdout
+    );
+
+    // By default it shows what the config contributes, not the whole process.
+    assert!(
+        !run.stdout.contains("PATH="),
+        "the default listing should not dump the process environment:\n{}",
+        run.stdout
+    );
+    sandbox
+        .run(&["env", "--all"])
+        .assert_code(0)
+        .assert_stdout_contains("PATH=");
+}
+
+#[test]
+fn env_reports_whether_this_looks_like_ci() {
+    let sandbox = Sandbox::new("lanes:\n  a: {}\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
+        .arg("env")
+        .current_dir(sandbox.path())
+        .env_remove("SHLANE_CONFIG")
+        .env("GITHUB_ACTIONS", "true")
+        .env("CI", "true")
+        .output()
+        .expect("shlane should run");
+    let run = Run::new(output);
+
+    run.assert_code(0)
+        .assert_stdout_contains("running on github");
+}
+
+#[test]
+fn a_failure_on_github_actions_is_annotated() {
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - run: exit 1\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
+        .args(["run", "a"])
+        .current_dir(sandbox.path())
+        .env_remove("SHLANE_CONFIG")
+        .env("GITHUB_ACTIONS", "true")
+        .output()
+        .expect("shlane should run");
+    let run = Run::new(output);
+
+    run.assert_code(1)
+        .assert_stderr_contains("::error title=shlane::");
+
+    // Off GitHub, nothing extra is printed.
+    let plain = sandbox.run(&["run", "a"]);
+    plain.assert_code(1);
+    assert!(
+        !plain.stderr.contains("::error"),
+        "annotations should only appear where they mean something:\n{}",
+        plain.stderr
+    );
+}
+
+#[test]
+fn scripts_can_branch_on_ci() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - run: echo on-ci
+        if: is_ci()
+      - run: echo always
+    script: |
+      print("provider=" + ci_provider());
+"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
+        .args(["run", "a"])
+        .current_dir(sandbox.path())
+        .env_remove("SHLANE_CONFIG")
+        .env("BUILDKITE", "true")
+        .output()
+        .expect("shlane should run");
+    let run = Run::new(output);
+
+    run.assert_code(0)
+        .assert_stdout_contains("on-ci")
+        .assert_stdout_contains("provider=buildkite");
+
+    let local = sandbox.run(&["run", "a"]);
+    local.assert_code(0).assert_stdout_contains("always");
+    assert!(
+        !local.stdout.contains("on-ci\n"),
+        "the CI-only step should have been skipped:\n{}",
+        local.stdout
+    );
+}

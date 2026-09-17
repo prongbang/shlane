@@ -110,9 +110,18 @@
 > - ดึง plugin จาก git host (`source: github:...`) — ต้องมี installer ที่ตรวจ checksum ก่อน
 > - Rhai module plugin (ทางเลือก B)
 > - ~~`codesign_sync` ที่อ่าน match repo เดิม~~ ✅ ทำแล้ว (read-only)
-> - GitHub Action wrapper + Homebrew tap
+> - ~~GitHub Action wrapper~~ ✅ ทำแล้ว (`action.yml` + `install.sh`) / Homebrew tap ยังไม่ทำ
 
-## M7 — 1.0
+## M7 — 1.0 ⚠️ เสร็จบางส่วน
+
+> ทำแล้ว: CI detection + GitHub annotations, `shlane env`, `install.sh` (ตรวจ checksum),
+> `action.yml`, release workflow (macOS arm64/x86-64, Linux x86-64/arm64/musl)
+>
+> **ยังไม่ทำ:** `appstore` (deliver — อัปโหลด metadata ขึ้น App Store), เอกสารบนเว็บ,
+> Homebrew tap, การแช่ schema v1 อย่างเป็นทางการ
+>
+> **ไม่มี Windows binary:** runner ยังเรียก `sh` ตรงๆ อยู่ — บอกตรงๆ ดีกว่าปล่อย binary
+> ที่พังตั้งแต่ step แรก
 
 - `appstore` (upload metadata + submit for review)
 - เอกสารครบบนเว็บ

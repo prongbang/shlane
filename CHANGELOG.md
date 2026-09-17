@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M7 — CI integration and distribution
+
+#### Added
+
+- **`shlane env`** shows the environment a lane would run with, masked. It lists what
+  the config contributes and says how many variables are inherited; `--all` dumps
+  everything. Printing the whole process environment by default would have made this
+  the easiest way to leak a token.
+- **CI detection** for GitHub Actions, GitLab, Bitrise, CircleCI, Jenkins, Buildkite,
+  Travis, TeamCity and Azure Pipelines, available to conditions and scripts as
+  `is_ci()` and `ci_provider()`. `CI=false` is respected: people set it deliberately.
+- **GitHub annotations.** A failure is also emitted as `::error title=shlane::`, so it
+  appears on the pull request rather than only in the log.
+- **`install.sh`**, which verifies every download against the release's `SHA256SUMS`
+  before installing, and refuses to install if the checksums cannot be fetched.
+- **`action.yml`**, a composite GitHub Action: `uses: prongbang/shlane@v1` with a
+  `lane` to run.
+- **A release workflow** building macOS (arm64, x86-64) and Linux (x86-64, arm64,
+  musl), with checksums and release notes taken from the changelog.
+
+#### Notes
+
+- No Windows binary: the runner still shells out to `sh`, so it would not work there.
+  Saying so is better than shipping one that fails on the first step.
+
 ### Milestone M6 — plugins and migration
 
 #### Added

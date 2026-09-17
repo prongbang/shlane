@@ -39,6 +39,7 @@ pub fn register(engine: &mut Engine, runtime: &Runtime) {
     register_commands(engine, runtime.clone());
     register_outputs(engine, runtime.clone());
     register_actions(engine, runtime.clone());
+    register_ci(engine, runtime.clone());
     register_ui(engine, runtime.clone());
 }
 
@@ -256,6 +257,21 @@ fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::
         .into_iter()
         .map(|(key, value)| (key.into(), rhai::Dynamic::from(value)))
         .collect())
+}
+
+/// Enough to branch on in a condition: `if: is_ci()`.
+fn register_ci(engine: &mut Engine, runtime: Runtime) {
+    let frame = runtime.frame.clone();
+    engine.register_fn("is_ci", move || -> bool {
+        crate::runtime::ci::detect(&frame.borrow().env).is_some()
+    });
+
+    let frame = runtime.frame;
+    engine.register_fn("ci_provider", move || -> String {
+        crate::runtime::ci::detect(&frame.borrow().env)
+            .map(|provider| provider.as_str().to_string())
+            .unwrap_or_default()
+    });
 }
 
 fn register_ui(engine: &mut Engine, runtime: Runtime) {

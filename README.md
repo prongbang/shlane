@@ -13,10 +13,21 @@ with a single static binary — no Ruby, no `bundle install`, no gem conflicts.
 ## Install
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/prongbang/shlane/master/install.sh | sh
+```
+
+Every download is checked against the release's `SHA256SUMS` before it is installed.
+Set `SHLANE_VERSION` to pin a version and `SHLANE_INSTALL_DIR` to choose where it goes.
+
+From source:
+
+```sh
 cargo install --path .
 ```
 
-Prebuilt binaries are planned; see [`docs/plan/14-release-and-distribution.md`](docs/plan/14-release-and-distribution.md).
+macOS (Apple Silicon and Intel) and Linux (x86-64, arm64, musl) have prebuilt binaries.
+Windows does not: the runner still shells out to `sh`, so the core would not work there
+yet.
 
 ## Quick start
 
@@ -56,6 +67,7 @@ shlane run deploy target=staging
 | `shlane validate` | Check the config without running anything |
 | `shlane init` | Write a starter config, guessing the project type |
 | `shlane action list` / `shlane action show <name>` | The built-in actions and their arguments |
+| `shlane env` | Show the environment a lane would run with, secrets masked |
 | `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
 | `shlane plugin list/lock/verify` | Inspect the plugins this config loads |
 | `shlane completions <shell>` | Print a shell completion script |
@@ -506,6 +518,32 @@ script: |
 `action(name, #{ ... })` runs a built-in and returns its outputs as a map.
 `call_lane()` is not available: calling a lane from a script means re-entering the
 executor, so use a `lane:` step instead.
+
+## On CI
+
+```yaml
+- uses: prongbang/shlane@v1
+  with:
+    lane: beta
+    params: target=production
+    args: --report junit:reports/shlane.xml
+```
+
+The action installs shlane (about a second, against `bundle install`'s thirty to a
+hundred and twenty) and runs the lane.
+
+shlane recognises GitHub Actions, GitLab, Bitrise, CircleCI, Jenkins, Buildkite,
+Travis, TeamCity and Azure Pipelines. On GitHub a failure is also emitted as a
+`::error` annotation, so it shows on the pull request rather than only in the log.
+Lanes and scripts can branch on it:
+
+```yaml
+steps:
+  - action: keychain
+    if: is_ci()          # ci_provider() gives the name
+    with:
+      password: ${KEYCHAIN_PASSWORD}
+```
 
 ## Reports
 
