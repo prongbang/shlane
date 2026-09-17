@@ -2037,7 +2037,7 @@ fn plugin_verify_catches_a_manifest_that_drifted() {
 }
 
 #[test]
-fn a_plugin_without_a_path_says_what_to_do() {
+fn a_plugin_that_has_not_been_fetched_says_so() {
     let sandbox = Sandbox::new(
         "plugins:\n  - name: line-notify\n    source: github:someone/shlane-line-notify@v1\nlanes:\n  a: {}\n",
     );
@@ -2045,8 +2045,215 @@ fn a_plugin_without_a_path_says_what_to_do() {
     sandbox
         .run(&["validate"])
         .assert_code(2)
-        .assert_stderr_contains("not implemented yet")
-        .assert_stderr_contains("github:someone/shlane-line-notify@v1");
+        .assert_stderr_contains("is not installed")
+        .assert_stderr_contains("shlane plugin install");
+}
+
+#[test]
+fn a_plugin_with_neither_path_nor_source_is_reported() {
+    let sandbox = Sandbox::new("plugins:\n  - name: line-notify\nlanes:\n  a: {}\n");
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("needs either `path:` or `source:`");
+}
+
+/// Turn a plugin directory into a git repository that can be cloned from.
+fn make_plugin_repo(sandbox: &Sandbox, dir: &str) -> String {
+    for args in [
+        vec!["init", "-q", "-b", "main", "."],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "shlane test"],
+        vec!["config", "commit.gpgsign", "false"],
+        vec!["add", "-A"],
+        vec!["commit", "-qm", "the plugin"],
+        vec!["tag", "v1.0.0"],
+    ] {
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(sandbox.path().join(dir))
+            .output()
+            .expect("git should run");
+        assert!(output.status.success(), "git {args:?} failed");
+    }
+
+    format!("file://{}", sandbox.path().join(dir).display())
+}
+
+#[test]
+fn a_plugin_is_fetched_from_a_git_host_and_then_runs() {
+    let sandbox = Sandbox::empty();
+    write_plugin(&sandbox, "upstream", None);
+    let url = make_plugin_repo(&sandbox, "upstream");
+
+    sandbox.write(
+        "shlane.yaml",
+        &format!(
+            r#"
+plugins:
+  - name: line-notify
+    source: git:{url}@v1.0.0
+lanes:
+  notify:
+    steps:
+      - id: sent
+        action: notify_line
+        with:
+          token: super-secret-channel-token
+          message: hello
+      - run: echo "message id ${{steps.sent.id}}"
+"#
+        ),
+    );
+
+    // Nothing is fetched as a side effect of running.
+    sandbox
+        .run(&["run", "notify"])
+        .assert_code(2)
+        .assert_stderr_contains("shlane plugin install");
+
+    sandbox
+        .run(&["plugin", "install"])
+        .assert_code(0)
+        .assert_stdout_contains("Installed line-notify")
+        .assert_stdout_contains("not in the lockfile yet");
+
+    let run = sandbox.run(&["run", "notify"]);
+    run.assert_code(0)
+        .assert_stdout_contains("message id msg-1");
+    assert!(
+        !run.stdout.contains("super-secret-channel-token"),
+        "a fetched plugin's sensitive argument leaked:\n{}",
+        run.stdout
+    );
+
+    // The clone's history is not kept: a plugin must not be updatable in place
+    // without going through the checksum.
+    assert!(
+        !sandbox
+            .path()
+            .join(".shlane/plugins/line-notify/.git")
+            .exists(),
+        "the plugin kept its git history"
+    );
+}
+
+#[test]
+fn installing_again_does_nothing_unless_asked() {
+    let sandbox = Sandbox::empty();
+    write_plugin(&sandbox, "upstream", None);
+    let url = make_plugin_repo(&sandbox, "upstream");
+    sandbox.write(
+        "shlane.yaml",
+        &format!(
+            "plugins:\n  - name: line-notify\n    source: git:{url}@v1.0.0\nlanes:\n  a: {{}}\n"
+        ),
+    );
+
+    sandbox.run(&["plugin", "install"]).assert_code(0);
+    sandbox
+        .run(&["plugin", "install"])
+        .assert_code(0)
+        .assert_stdout_contains("already installed");
+    sandbox
+        .run(&["plugin", "install", "--force"])
+        .assert_code(0)
+        .assert_stdout_contains("Installed line-notify");
+}
+
+#[test]
+fn a_source_without_a_tag_is_flagged_as_floating() {
+    let sandbox = Sandbox::empty();
+    write_plugin(&sandbox, "upstream", None);
+    let url = make_plugin_repo(&sandbox, "upstream");
+    sandbox.write(
+        "shlane.yaml",
+        &format!("plugins:\n  - name: line-notify\n    source: git:{url}\nlanes:\n  a: {{}}\n"),
+    );
+
+    sandbox
+        .run(&["plugin", "install"])
+        .assert_code(0)
+        .assert_stdout_contains("nothing pins this plugin");
+}
+
+#[test]
+fn a_fetched_plugin_must_be_the_one_the_config_named() {
+    let sandbox = Sandbox::empty();
+    write_plugin(&sandbox, "upstream", None);
+    let url = make_plugin_repo(&sandbox, "upstream");
+    sandbox.write(
+        "shlane.yaml",
+        &format!(
+            "plugins:\n  - name: something-else\n    source: git:{url}@v1.0.0\nlanes:\n  a: {{}}\n"
+        ),
+    );
+
+    sandbox
+        .run(&["plugin", "install"])
+        .assert_code(2)
+        .assert_stderr_contains("manifest says 'line-notify'");
+
+    assert!(
+        !sandbox
+            .path()
+            .join(".shlane/plugins/something-else")
+            .exists(),
+        "a rejected plugin should not be left installed"
+    );
+}
+
+#[test]
+fn a_moved_tag_is_caught_by_the_lockfile() {
+    let sandbox = Sandbox::empty();
+    write_plugin(&sandbox, "upstream", None);
+    let url = make_plugin_repo(&sandbox, "upstream");
+    sandbox.write(
+        "shlane.yaml",
+        &format!(
+            "plugins:\n  - name: line-notify\n    source: git:{url}@v1.0.0\nlanes:\n  a: {{}}\n"
+        ),
+    );
+
+    sandbox.run(&["plugin", "install"]).assert_code(0);
+    sandbox.run(&["plugin", "lock"]).assert_code(0);
+
+    // Upstream changes what the tag points at.
+    sandbox.write(
+        "upstream/notify.sh",
+        "#!/bin/sh
+echo 'this is not the plugin you locked'
+",
+    );
+    for args in [
+        vec!["add", "-A"],
+        vec!["commit", "-qm", "sneaky"],
+        vec!["tag", "-f", "v1.0.0"],
+    ] {
+        Command::new("git")
+            .args(&args)
+            .current_dir(sandbox.path().join("upstream"))
+            .output()
+            .expect("git should run");
+    }
+
+    sandbox
+        .run(&["plugin", "install", "--force"])
+        .assert_code(2)
+        .assert_stderr_contains("does not match the lockfile");
+}
+
+#[test]
+fn a_source_that_cannot_be_fetched_is_reported() {
+    let sandbox = Sandbox::new(
+        "plugins:\n  - name: line-notify\n    source: git:file:///definitely/not/a/repo@v1\nlanes:\n  a: {}\n",
+    );
+
+    sandbox
+        .run(&["plugin", "install"])
+        .assert_code(2)
+        .assert_stderr_contains("could not fetch");
 }
 
 #[test]

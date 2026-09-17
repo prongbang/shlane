@@ -41,6 +41,70 @@ pub fn list(found: &Discovered) -> Result<()> {
     Ok(())
 }
 
+/// Fetch the plugins the config declares with a `source:`.
+pub fn install(found: &Discovered, force: bool) -> Result<()> {
+    let outcomes = plugin::install::install_all(&found.config, &found.root, force)?;
+    if outcomes.is_empty() {
+        println!("no plugins to fetch (a `path:` plugin is already where it needs to be)");
+        return Ok(());
+    }
+
+    let locked = plugin::read_lockfile(&found.root)?;
+    let mut mismatched = Vec::new();
+
+    for outcome in &outcomes {
+        if outcome.already_present {
+            println!(
+                "{} is already installed (--force to fetch it again)",
+                outcome.name
+            );
+            continue;
+        }
+        println!(
+            "Installed {} into {}",
+            outcome.name,
+            outcome.directory.display()
+        );
+        if outcome.floating {
+            println!(
+                "  warning: nothing pins this plugin; add @<tag> to the source so a moved tag cannot change what runs"
+            );
+        }
+    }
+
+    // Anything already in the lockfile has to still match: a tag can be moved
+    // after the fact, and that is exactly what the lockfile is for.
+    let plugins = plugin::load_all_unverified(&found.config, &found.root)?;
+    for installed in &plugins {
+        let actual = installed.checksum()?;
+        match locked.get(&installed.manifest.name) {
+            Some(expected) if expected != &actual => mismatched.push(format!(
+                "plugin '{}' does not match the lockfile
+    expected sha256:{expected}
+    found    sha256:{actual}",
+                installed.manifest.name
+            )),
+            Some(_) => println!("{} matches the lockfile", installed.manifest.name),
+            None => println!(
+                "{} is not in the lockfile yet: sha256:{actual}",
+                installed.manifest.name
+            ),
+        }
+    }
+
+    if !mismatched.is_empty() {
+        return Err(ShlaneError::ConfigProblems {
+            path: found.root.join(plugin::LOCKFILE),
+            problems: mismatched,
+        });
+    }
+
+    if locked.is_empty() {
+        println!("\nRun `shlane plugin lock` and commit the lockfile.");
+    }
+    Ok(())
+}
+
 pub fn lock(found: &Discovered) -> Result<()> {
     let plugins = plugin::load_all(&found.config, &found.root)?;
     let path = plugin::write_lockfile(&found.root, &plugins)?;

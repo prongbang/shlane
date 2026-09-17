@@ -72,10 +72,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Actions are looked up through a registry built per run, since which actions exist now
   depends on the config. `ArgSpec` holds owned strings so a plugin can describe itself.
 
-#### Notes
+#### Added later in M6
 
-- Plugins load from local paths only; fetching from a git host waits for the
-  lockfile-verified installer in `docs/plan/09-plugins.md`.
+- **`shlane plugin install`** fetches the plugins a config declares with a `source:` —
+  `github:owner/repo@tag`, a git URL, or an SSH remote. Fetching never happens as part
+  of a run: a lane whose plugin is missing says so and stops, because installing one
+  means putting someone else's code on the machine that holds the signing keys.
+  - A source with no `@tag` is flagged: an unpinned tag can be moved afterwards.
+  - If the lockfile already has an entry, a plugin that no longer matches is refused
+    rather than installed — which is what catches a moved tag.
+  - The fetch goes to a scratch directory first, so a half-finished clone is never left
+    where a plugin is expected, and the clone's `.git` is discarded so a plugin cannot
+    be updated in place without going through the checksum again.
+  - What was fetched has to be the plugin the config named, speaking a protocol this
+    build understands, with the executable its manifest points at.
 
 ### Milestone M5 — iOS
 

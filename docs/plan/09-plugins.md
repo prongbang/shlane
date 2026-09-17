@@ -70,6 +70,15 @@ shlane plugin verify          # เช็ค checksum + protocol version
 - ติดตั้งลง `.shlane/plugins/` ในโปรเจกต์ (commit `shlane-plugins.lock` ที่มี checksum)
 - **ต้องมี lockfile พร้อม SHA-256** — plugin คือโค้ดที่รันด้วยสิทธิ์เต็มบน CI ที่ถือ signing key ของแอป การ resolve แบบ floating version คือช่องโหว่ supply chain
 
+## สถานะ (M6 — ทำแล้ว)
+
+- plugin แบบ external executable (ทางเลือก A) + protocol v1 ครบ
+- `path:` และ `source:` (`github:owner/repo@tag`, git URL, ssh)
+- `shlane plugin install / list / lock / verify`
+- lockfile SHA-256 — tag ที่ถูกย้ายจะถูกปฏิเสธ ไม่ใช่ติดตั้งทับ
+
+ยังไม่ทำ: Rhai module plugin (ทางเลือก B)
+
 ## ข้อกำหนดด้านความปลอดภัย
 
 1. ไม่ auto-install plugin ตอน `shlane run` — ต้องสั่ง `plugin add` อย่างชัดเจน

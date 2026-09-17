@@ -4,13 +4,15 @@
 //! executable. It can be written in anything; it speaks the JSON protocol in
 //! [`protocol`].
 //!
-//! Only local paths are resolved today. Fetching a plugin from a git host means
-//! running someone else's code on the machine that holds the signing keys, so
-//! it waits for the lockfile-verified installer the plan describes rather than
-//! being half-done here.
+//! A plugin can come from a local path or from a git host. Fetching one is
+//! never part of a run: it means putting someone else's code on the machine
+//! that holds the signing keys, so it takes an explicit `shlane plugin install`
+//! and the lockfile then holds what was installed in place.
 
 pub mod action;
+pub mod install;
 pub mod protocol;
+pub mod source;
 
 use crate::actions::Action;
 use crate::config::model::{Config, PluginRef};
@@ -82,33 +84,45 @@ impl Loaded {
     }
 }
 
-/// Read every plugin the config asks for.
+/// Read every plugin the config asks for, and hold them to the lockfile.
 pub fn load_all(config: &Config, root: &Path) -> Result<Vec<Loaded>> {
+    let loaded = load_all_unverified(config, root)?;
+    verify_against_lockfile(&loaded, root)?;
+    Ok(loaded)
+}
+
+/// Read them without the lockfile check, for the installer -- which reports a
+/// mismatch itself, with more to say about it.
+pub fn load_all_unverified(config: &Config, root: &Path) -> Result<Vec<Loaded>> {
+    config
+        .plugins
+        .iter()
+        .map(|reference| load_one(reference, root))
+        .collect()
+}
+
+/// A plugin runs with full permissions on the machine that holds the signing
+/// keys, so a recorded checksum has to match.
+fn verify_against_lockfile(loaded: &[Loaded], root: &Path) -> Result<()> {
     let expected = read_lockfile(root)?;
-    let mut loaded = Vec::new();
 
-    for reference in &config.plugins {
-        let plugin = load_one(reference, root)?;
-
-        // A plugin runs with full permissions on the machine that holds the
-        // signing keys, so a recorded checksum has to match.
-        if let Some(expected) = expected.get(&plugin.manifest.name) {
-            let actual = plugin.checksum()?;
-            if &actual != expected {
-                return Err(ShlaneError::ConfigProblems {
-                    path: root.join(LOCKFILE),
-                    problems: vec![format!(
-                        "plugin '{}' does not match the lockfile\n    expected sha256:{expected}\n    found    sha256:{actual}\n    run `shlane plugin lock` if the change is expected",
-                        plugin.manifest.name
-                    )],
-                });
-            }
+    for plugin in loaded {
+        let Some(expected) = expected.get(&plugin.manifest.name) else {
+            continue;
+        };
+        let actual = plugin.checksum()?;
+        if &actual != expected {
+            return Err(ShlaneError::ConfigProblems {
+                path: root.join(LOCKFILE),
+                problems: vec![format!(
+                    "plugin '{}' does not match the lockfile\n    expected sha256:{expected}\n    found    sha256:{actual}\n    run `shlane plugin lock` if the change is expected",
+                    plugin.manifest.name
+                )],
+            });
         }
-
-        loaded.push(plugin);
     }
 
-    Ok(loaded)
+    Ok(())
 }
 
 fn load_one(reference: &PluginRef, root: &Path) -> Result<Loaded> {
@@ -117,18 +131,27 @@ fn load_one(reference: &PluginRef, root: &Path) -> Result<Loaded> {
         problems: vec![message],
     };
 
-    let Some(path) = &reference.path else {
-        let named = match &reference.source {
-            Some(source) => format!(" (`source: {source}`)"),
-            None => String::new(),
-        };
-        return Err(problems(format!(
-            "plugin '{}'{named} has no `path:`. Fetching a plugin from a git host is not implemented yet (docs/plan/09-plugins.md): a plugin runs with full permissions on the machine holding the signing keys, so it waits for the lockfile-verified installer. Vendor it and point `path:` at the directory.",
-            reference.name
-        )));
+    let directory = match (&reference.path, &reference.source) {
+        (Some(path), _) => root.join(path),
+        (None, Some(source)) => {
+            // Fetched plugins live in one place; a missing one is a missing
+            // install, not a broken config.
+            let fetched = install::directory_for(root, &reference.name);
+            if !fetched.join(MANIFEST).is_file() {
+                return Err(problems(format!(
+                    "plugin '{}' (source: {source}) is not installed; run `shlane plugin install`",
+                    reference.name
+                )));
+            }
+            fetched
+        }
+        (None, None) => {
+            return Err(problems(format!(
+                "plugin '{}' needs either `path:` or `source:`",
+                reference.name
+            )))
+        }
     };
-
-    let directory = root.join(path);
     let manifest_path = directory.join(MANIFEST);
     let text = fs::read_to_string(&manifest_path).map_err(|source| {
         problems(format!(

@@ -63,6 +63,12 @@ enum ActionCommands {
 
 #[derive(Subcommand)]
 enum PluginCommands {
+    /// Fetch the plugins the config declares with a source
+    Install {
+        /// Fetch again even when the plugin is already installed
+        #[arg(long)]
+        force: bool,
+    },
     /// Show every plugin, its actions and its checksum
     List,
     /// Record each plugin's checksum in shlane-plugins.lock
@@ -235,6 +241,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Commands::Plugin { command } => {
             let found = load(file.as_deref(), &base)?;
             match command {
+                PluginCommands::Install { force } => plugins::install(&found, force),
                 PluginCommands::List => plugins::list(&found),
                 PluginCommands::Lock => plugins::lock(&found),
                 PluginCommands::Verify => plugins::verify(&found),

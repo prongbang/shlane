@@ -107,7 +107,7 @@
 > `plugin list/lock/verify`, และ `shlane migrate`
 >
 > **ยังไม่ทำ:**
-> - ดึง plugin จาก git host (`source: github:...`) — ต้องมี installer ที่ตรวจ checksum ก่อน
+> - ~~ดึง plugin จาก git host~~ ✅ ทำแล้ว (`shlane plugin install` + ตรวจ lockfile, ไม่ auto-install ตอนรัน)
 > - Rhai module plugin (ทางเลือก B)
 > - ~~`codesign_sync` ที่อ่าน match repo เดิม~~ ✅ ทำแล้ว (read-only)
 > - ~~GitHub Action wrapper~~ ✅ ทำแล้ว (`action.yml` + `install.sh`) / Homebrew tap ยังไม่ทำ

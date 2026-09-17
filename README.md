@@ -69,7 +69,7 @@ shlane run deploy target=staging
 | `shlane action list` / `shlane action show <name>` | The built-in actions and their arguments |
 | `shlane env` | Show the environment a lane would run with, secrets masked |
 | `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
-| `shlane plugin list/lock/verify` | Inspect the plugins this config loads |
+| `shlane plugin install/list/lock/verify` | Fetch and inspect plugins |
 | `shlane completions <shell>` | Print a shell completion script |
 
 | Flag | What it does |
@@ -409,9 +409,24 @@ plugin that no longer matches is refused — a plugin runs with the same permiss
 shlane, on the machine holding the signing keys. `shlane plugin verify` asks each
 plugin to describe itself and reports where its manifest has drifted.
 
-Plugins are loaded from local paths only. Fetching one from a git host waits for the
-installer described in [`docs/plan/09-plugins.md`](docs/plan/09-plugins.md); vendor it
-and point `path:` at the directory.
+A plugin can also come from a git host:
+
+```yaml
+plugins:
+  - name: line-notify
+    source: github:someone/shlane-line-notify@v0.1.0   # or a git URL
+```
+
+```sh
+shlane plugin install     # fetches what the config declares
+shlane plugin lock        # then commit shlane-plugins.lock
+```
+
+Fetching never happens as part of a run: a lane whose plugin is missing says so and
+stops. A source with no `@tag` is flagged, because a tag that is not pinned can be
+moved afterwards — and if the lockfile already has an entry, a moved tag is refused
+rather than installed. The clone's git history is discarded, so a plugin cannot be
+updated in place without going through the checksum again.
 
 ## Migrating from fastlane
 
