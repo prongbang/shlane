@@ -75,7 +75,7 @@
 > ยังไม่ได้ verify: `play_store` เทสเฉพาะรูปร่าง request (unit test) การคุยกับ Google
 > จริงต้องมี service account — เป็นงาน e2e
 
-## M5 — iOS
+## M5 — iOS ✅ เสร็จแล้ว (บางส่วน)
 
 - `build_ios`, `test_ios` + parse `.xcresult`
 - `keychain`, `setup_ci`
@@ -83,6 +83,18 @@
 - code signing ทางเลือก C (API key + `-allowProvisioningUpdates`) ตาม [07](07-actions-ios.md)
 
 **เสร็จเมื่อ:** โปรเจกต์ iOS จริงขึ้น TestFlight ได้จาก CI
+
+> ทำแล้ว: `build_ios` (พร้อมสร้าง ExportOptions.plist), `test_ios`, `keychain`,
+> `testflight` (ผ่าน altool), `asc_request` (ES256 JWT ด้วย ring)
+>
+> **ยังไม่ได้ทำ:**
+> - `codesign_sync` / match — ทำแค่ทางเลือก C (API key + `-allowProvisioningUpdates`)
+>   ทีมที่ใช้ match อยู่ยังย้ายมาไม่ได้ นี่คือ blocker ที่เหลือจริงๆ
+> - แปลง `.xcresult` เป็น JUnit — ต้อง parse output ของ `xcresulttool` ซึ่งเช็ค shape
+>   ไม่ได้ถ้าไม่มี Xcode การเดาแล้วเขียนไปจะได้ของที่ดูเหมือนเสร็จแต่ใช้ไม่ได้
+>
+> **ยังไม่ได้ verify:** ทุก action ต้องมี macOS + Xcode — unit test คลุมการประกอบคำสั่ง,
+> plist และ JWT claims แต่ไม่ได้ทดสอบกับของจริง
 
 ## M6 — ระบบนิเวศ
 

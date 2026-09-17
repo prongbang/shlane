@@ -220,6 +220,11 @@ lanes:
 | `sign_android` | Sign with a keystore, from a file or base64 |
 | `play_store` | Upload to Google Play |
 | `firebase_distribution` | Distribute through Firebase App Distribution |
+| `build_ios` | Archive and export an `.ipa` |
+| `test_ios` | Run tests in a simulator |
+| `keychain` | Create, unlock or delete a keychain |
+| `testflight` | Upload a build to TestFlight |
+| `asc_request` | Any App Store Connect API call, authenticated |
 
 Scripts can call the same actions:
 
@@ -266,8 +271,50 @@ real account, and is e2e work
 ([`docs/plan/13-testing-and-quality.md`](docs/plan/13-testing-and-quality.md)).
 `firebase_distribution` wraps the `firebase` CLI, which must be installed.
 
-iOS actions (`build_ios`, `test_ios`, `testflight`) are M5; see
-[`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md).
+### iOS
+
+```yaml
+lanes:
+  beta:
+    platform: ios
+    steps:
+      - action: keychain
+        with:
+          name: shlane-ci.keychain-db
+          password: ${KEYCHAIN_PASSWORD}
+      - id: build
+        action: build_ios
+        with:
+          workspace: MyApp.xcworkspace
+          scheme: MyApp
+          export_method: app-store
+          team_id: ABCDE12345
+      - action: testflight
+        with:
+          ipa: ${steps.build.ipa}
+          key_id: ${ASC_KEY_ID}
+          issuer_id: ${ASC_ISSUER_ID}
+          key: ${ASC_KEY_P8}       # PEM, base64 of it, or a path
+```
+
+`build_ios` writes the `ExportOptions.plist` that `-exportArchive` insists on — the
+part of `gym` people do not notice they are getting until they try to do without it —
+and finds the `.ipa` afterwards.
+
+Signing goes through Xcode's own `-allowProvisioningUpdates` with an App Store Connect
+key. A synced certificate store like fastlane's `match` is not implemented; if your
+team depends on one, this is the gap that matters
+([`docs/plan/07-actions-ios.md`](docs/plan/07-actions-ios.md) weighs the options).
+
+`testflight` uploads with `xcrun altool`, writing the `.p8` to a directory it points
+`API_PRIVATE_KEYS_DIR` at and deleting it afterwards. `asc_request` signs an ES256
+token and calls any App Store Connect endpoint, so the parts of the API shlane has no
+action for are still reachable.
+
+**These need macOS and Xcode.** What to run is decided by functions that are tested
+here; the round trip is not, and needs a machine with Xcode and a real Apple account.
+`test_ios` runs the tests and reports the `.xcresult` path, but does not yet convert it
+to JUnit the way `test_android` gets JUnit from Gradle for free.
 
 ## Environment and secrets
 

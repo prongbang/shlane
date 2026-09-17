@@ -4,6 +4,7 @@
 //! takes, so `shlane validate` can check a config without running it, and it
 //! reports what it produced, so later steps can use it.
 
+pub mod asc;
 pub mod context;
 pub mod core;
 pub mod google;

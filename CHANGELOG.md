@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Milestone M5 — iOS
+
+#### Added
+
+- **`build_ios`** archives and exports, writing the `ExportOptions.plist` that
+  `-exportArchive` requires and then finding the `.ipa`.
+- **`test_ios`** runs a scheme's tests in a simulator and reports the `.xcresult`.
+- **`keychain`** creates, unlocks or deletes a keychain, with the password passed
+  through the environment rather than the command line.
+- **`testflight`** uploads with `xcrun altool`, writing the `.p8` to a directory it
+  points `API_PRIVATE_KEYS_DIR` at, with `0600` permissions, and deleting it afterwards.
+- **`asc_request`** calls any App Store Connect endpoint with a signed ES256 token, so
+  the parts of the API without a dedicated action are still reachable. Signing uses
+  `ring`, already in the tree.
+
+#### Notes
+
+- Signing goes through Xcode's `-allowProvisioningUpdates` with an App Store Connect
+  key — option C in `docs/plan/07-actions-ios.md`. A synced certificate store like
+  fastlane's `match` is **not** implemented; for a team that depends on one, that is
+  the remaining blocker.
+- `test_ios` does not convert `.xcresult` to JUnit yet. Doing that means parsing
+  `xcresulttool`'s output, whose shape cannot be checked without Xcode, and guessing at
+  it would ship something that looks finished and is not.
+- Everything here needs macOS. The command construction, the plist and the token claims
+  are unit-tested; the round trip is not.
+
 ### Milestone M4 — Android
 
 #### Added

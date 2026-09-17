@@ -4,6 +4,7 @@ pub mod android;
 pub mod firebase;
 pub mod git;
 pub mod http;
+pub mod ios;
 pub mod play;
 pub mod shell;
 pub mod version;
@@ -27,6 +28,11 @@ pub fn all() -> Vec<Box<dyn Action>> {
         Box::new(android::BuildAndroid),
         Box::new(android::TestAndroid),
         Box::new(android::SignAndroid),
+        Box::new(ios::BuildIos),
+        Box::new(ios::TestIos),
+        Box::new(ios::Keychain),
+        Box::new(ios::TestFlight),
+        Box::new(ios::AscRequest),
         Box::new(play::PlayStore),
         Box::new(firebase::FirebaseDistribution),
         Box::new(http::HttpRequest),

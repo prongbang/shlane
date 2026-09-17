@@ -95,6 +95,18 @@ ios:
 - token อายุ 20 นาที ต้อง refresh อัตโนมัติสำหรับการอัปโหลดที่ใช้เวลานาน
 - การอัปโหลด binary จริงยังต้องใช้ `xcrun altool` / `iTMSTransporter` ในเฟสแรก — เขียน uploader เองทีหลังถ้าจำเป็น
 
+## สถานะ (M5)
+
+| action | สถานะ |
+|---|---|
+| `build_ios` | ✅ ทำแล้ว (archive + export + ExportOptions.plist) |
+| `test_ios` | ✅ ทำแล้ว (ยังไม่แปลง xcresult → JUnit) |
+| `keychain` | ✅ ทำแล้ว |
+| `testflight` | ✅ ทำแล้ว (ผ่าน `xcrun altool`) |
+| `asc_request` | ✅ ทำแล้ว (เรียก ASC API อะไรก็ได้ ด้วย ES256 JWT) |
+| `codesign_sync` (match) | ❌ ยังไม่ทำ — ใช้ทางเลือก C ไปก่อน |
+| `appstore` (deliver) | ❌ ยังไม่ทำ (M7) |
+
 ## ความเสี่ยง
 
 - **Apple เปลี่ยน API/พฤติกรรมบ่อย** — ต้องมี integration test ที่รันจริงบน macOS runner อย่างน้อยสัปดาห์ละครั้ง

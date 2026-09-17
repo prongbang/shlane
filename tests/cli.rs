@@ -820,7 +820,7 @@ fn namespaced_references_resolve() {
 
 #[test]
 fn an_unknown_action_is_reported_by_validate() {
-    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - action: build_ios\n");
+    let sandbox = Sandbox::new("lanes:\n  a:\n    steps:\n      - action: teleport_app\n");
 
     sandbox
         .run(&["validate"])
@@ -1460,7 +1460,8 @@ lanes:
 
 #[test]
 fn a_script_calling_an_unknown_action_says_so() {
-    let sandbox = Sandbox::new("lanes:\n  a:\n    script: |\n      action(\"build_ios\", #{});\n");
+    let sandbox =
+        Sandbox::new("lanes:\n  a:\n    script: |\n      action(\"teleport_app\", #{});\n");
 
     sandbox
         .run(&["run", "a"])
@@ -1700,4 +1701,124 @@ fn a_bad_report_specification_is_rejected() {
         .run(&["run", "a", "--report", "toml:out.toml"])
         .assert_code(2)
         .assert_stderr_contains("unknown report format");
+}
+
+// ---------------------------------------------------------------------------
+// M5: iOS
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ios_actions_are_registered_and_documented() {
+    let sandbox = Sandbox::new("lanes: {}\n");
+
+    sandbox
+        .run(&["action", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("build_ios")
+        .assert_stdout_contains("testflight")
+        .assert_stdout_contains("keychain");
+
+    sandbox
+        .run(&["action", "show", "build_ios"])
+        .assert_code(0)
+        .assert_stdout_contains("app-store")
+        .assert_stdout_contains("scheme");
+}
+
+#[test]
+fn build_ios_wants_a_workspace_or_a_project() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  a:\n    steps:\n      - action: build_ios\n        with:\n          scheme: MyApp\n",
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(1)
+        .assert_stderr_contains("workspace or project");
+}
+
+#[test]
+fn build_ios_shows_the_commands_it_would_run() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  beta:
+    steps:
+      - action: build_ios
+        with:
+          workspace: MyApp.xcworkspace
+          scheme: MyApp
+          export_method: ad-hoc
+          team_id: ABCDE12345
+"#,
+    );
+
+    let run = sandbox.run(&["run", "beta", "--dry-run"]);
+    run.assert_code(0)
+        .assert_stdout_contains("xcodebuild archive")
+        .assert_stdout_contains("-workspace 'MyApp.xcworkspace'")
+        .assert_stdout_contains("-allowProvisioningUpdates")
+        .assert_stdout_contains("-exportArchive")
+        .assert_stdout_contains("ExportOptions.plist");
+}
+
+#[test]
+fn testflight_checks_its_arguments_before_anything_else() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  a:\n    steps:\n      - action: testflight\n        with:\n          ipa: app.ipa\n",
+    );
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("needs 'key_id'")
+        .assert_stderr_contains("needs 'issuer_id'")
+        .assert_stderr_contains("needs 'key'");
+}
+
+#[test]
+fn an_app_store_connect_key_that_is_not_a_key_is_reported() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - action: asc_request
+        with:
+          path: /v1/apps
+          key_id: ABC123
+          issuer_id: 69a6de7e-0000-0000-0000-000000000000
+          key: definitely-not-a-p8
+"#,
+    );
+
+    sandbox
+        .run(&["run", "a"])
+        .assert_code(1)
+        .assert_stderr_contains("neither PEM, a file, nor base64");
+}
+
+#[test]
+fn the_ios_keychain_password_never_reaches_the_output() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - action: keychain
+        with:
+          action: create
+          name: shlane-test.keychain-db
+          password: keychain-secret-9999
+"#,
+    );
+
+    // `security` does not exist on Linux, so this fails -- what matters is that
+    // the password is not in the failure.
+    let run = sandbox.run(&["run", "a"]);
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    assert!(
+        !everything.contains("keychain-secret-9999"),
+        "the keychain password leaked:\n{everything}"
+    );
 }
