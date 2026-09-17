@@ -77,7 +77,9 @@ shlane plugin verify          # เช็ค checksum + protocol version
 - `shlane plugin install / list / lock / verify`
 - lockfile SHA-256 — tag ที่ถูกย้ายจะถูกปฏิเสธ ไม่ใช่ติดตั้งทับ
 
-ยังไม่ทำ: Rhai module plugin (ทางเลือก B)
+- Rhai module plugin (ทางเลือก B) — manifest ใช้ `script:` แทน `executable:` หนึ่ง action
+  ต่อหนึ่ง function ได้ builtin เหมือน script ของ lane ยกเว้น `action()` (registry ถือ plugin อยู่
+  จะส่ง registry กลับเข้า plugin ไม่ได้)
 
 ## ข้อกำหนดด้านความปลอดภัย
 

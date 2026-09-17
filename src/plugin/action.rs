@@ -10,6 +10,30 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+/// Turn what a manifest declares into the schema every action exposes.
+pub fn schema_from(declared: &ManifestAction) -> Vec<ArgSpec> {
+    declared
+        .args
+        .iter()
+        .map(|arg| {
+            let mut spec = ArgSpec::new(
+                arg.name.clone(),
+                arg.description.clone().unwrap_or_default(),
+            );
+            if arg.required {
+                spec = spec.required();
+            }
+            if let Some(default) = &arg.default {
+                spec = spec.default(default.clone());
+            }
+            if arg.sensitive {
+                spec = spec.sensitive();
+            }
+            spec
+        })
+        .collect()
+}
+
 pub struct PluginAction {
     declared: ManifestAction,
     plugin: String,
@@ -39,26 +63,7 @@ impl Action for PluginAction {
     }
 
     fn schema(&self) -> Vec<ArgSpec> {
-        self.declared
-            .args
-            .iter()
-            .map(|arg| {
-                let mut spec = ArgSpec::new(
-                    arg.name.clone(),
-                    arg.description.clone().unwrap_or_default(),
-                );
-                if arg.required {
-                    spec = spec.required();
-                }
-                if let Some(default) = &arg.default {
-                    spec = spec.default(default.clone());
-                }
-                if arg.sensitive {
-                    spec = spec.sensitive();
-                }
-                spec
-            })
-            .collect()
+        schema_from(&self.declared)
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {

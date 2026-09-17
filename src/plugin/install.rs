@@ -157,10 +157,10 @@ fn check_manifest(directory: &Path, expected: &str) -> std::result::Result<(), S
         ));
     }
 
-    if !directory.join(&manifest.executable).is_file() {
+    let (_, entry) = manifest.entry()?;
+    if !directory.join(entry).is_file() {
         return Err(format!(
-            "its manifest points at {}, which the repository does not contain",
-            manifest.executable
+            "its manifest points at {entry}, which the repository does not contain"
         ));
     }
 

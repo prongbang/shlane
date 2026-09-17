@@ -18,7 +18,10 @@ pub struct Runtime {
     pub outputs: SharedOutputs,
     pub secrets: SharedSecrets,
     pub ui: Rc<Ui>,
-    pub registry: Rc<crate::actions::Registry>,
+    /// `None` inside a Rhai plugin: the registry holds the plugin, so handing
+    /// the plugin the registry back would be a cycle. Such a script gets every
+    /// other builtin.
+    pub registry: Option<Rc<crate::actions::Registry>>,
 }
 
 /// What a command did. Returned by `run()`, `try_run()`.
@@ -38,6 +41,8 @@ pub fn register(engine: &mut Engine, runtime: &Runtime) {
     register_env(engine, runtime.clone());
     register_commands(engine, runtime.clone());
     register_outputs(engine, runtime.clone());
+    // Registered even inside a Rhai plugin, where it cannot work: "Function not
+    // found: action" tells nobody why.
     register_actions(engine, runtime.clone());
     register_ci(engine, runtime.clone());
     register_ui(engine, runtime.clone());
@@ -102,7 +107,15 @@ fn register_env(engine: &mut Engine, runtime: Runtime) {
 }
 
 fn register_commands(engine: &mut Engine, runtime: Runtime) {
-    let execute = move |runtime: &Runtime, command: &str, quiet: bool| -> Fallible<CmdResult> {
+    // `skip_on_dry_run` marks a command that changes something. A read runs
+    // even under --dry-run: a dry run that invents results reports problems
+    // that do not exist and hides the ones that do, which is why `capture()`
+    // returning nothing would quietly turn "v2.1.0" into "v".
+    let execute = move |runtime: &Runtime,
+                        command: &str,
+                        quiet: bool,
+                        skip_on_dry_run: bool|
+          -> Fallible<CmdResult> {
         // Copy what is needed and drop the borrow: the command may take
         // minutes, and a builtin it calls may want the frame too.
         let (env, workdir, dry_run) = {
@@ -110,7 +123,7 @@ fn register_commands(engine: &mut Engine, runtime: Runtime) {
             (frame.env.clone(), frame.workdir.clone(), frame.dry_run)
         };
 
-        if dry_run {
+        if dry_run && skip_on_dry_run {
             runtime.ui.say(&format!("Would execute: {command}"));
             return Ok(CmdResult {
                 code: 0,
@@ -144,7 +157,7 @@ fn register_commands(engine: &mut Engine, runtime: Runtime) {
     let inner = runtime.clone();
     let run_fn = execute;
     engine.register_fn("run", move |command: &str| -> Fallible<CmdResult> {
-        let result = run_fn(&inner, command, false)?;
+        let result = run_fn(&inner, command, false, true)?;
         if !result.success {
             // Unlike v0.1.0, a failed command stops the script instead of
             // letting the next line run on a broken state.
@@ -155,12 +168,12 @@ fn register_commands(engine: &mut Engine, runtime: Runtime) {
 
     let inner = runtime.clone();
     engine.register_fn("try_run", move |command: &str| -> Fallible<CmdResult> {
-        run_fn(&inner, command, false)
+        run_fn(&inner, command, false, true)
     });
 
     let inner = runtime;
     engine.register_fn("capture", move |command: &str| -> Fallible<String> {
-        let result = run_fn(&inner, command, true)?;
+        let result = run_fn(&inner, command, true, false)?;
         if !result.success {
             return Err(format!("command failed with exit code {}: {command}", result.code).into());
         }
@@ -200,7 +213,12 @@ fn register_actions(engine: &mut Engine, runtime: Runtime) {
 }
 
 fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::Map> {
-    let registry = runtime.registry.clone();
+    let Some(registry) = runtime.registry.clone() else {
+        return Err(
+            "action() is not available inside a Rhai plugin: the registry holds the plugin, so a plugin cannot be handed it back. Use run() or capture(), or write the plugin as an executable."
+                .into(),
+        );
+    };
     let Some(action) = registry.find(name) else {
         return Err(format!(
             "no such action '{name}' (try: {})",
@@ -246,6 +264,8 @@ fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::
         dry_run,
         ui: runtime.ui.clone(),
         secrets: runtime.secrets.clone(),
+        frame: runtime.frame.clone(),
+        outputs: runtime.outputs.clone(),
     };
 
     let output = action

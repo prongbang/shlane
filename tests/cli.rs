@@ -2643,3 +2643,201 @@ lanes:
         local.stdout
     );
 }
+
+// ---------------------------------------------------------------------------
+// M6: plugins written in Rhai
+// ---------------------------------------------------------------------------
+
+/// A plugin that is a script rather than a program.
+fn write_rhai_plugin(sandbox: &Sandbox, dir: &str, body: &str) {
+    sandbox.write(
+        &format!("{dir}/shlane-plugin.yaml"),
+        "name: release-helpers\nversion: 0.1.0\nprotocol: 1\nscript: helpers.rhai\nactions:\n  - name: tag_release\n    description: Tag a release and report what it did\n    args:\n      - name: version\n        description: Version to tag\n        required: true\n      - name: token\n        description: An API token\n        sensitive: true\n",
+    );
+    sandbox.write(&format!("{dir}/helpers.rhai"), body);
+}
+
+const RHAI_PLUGIN_CONFIG: &str = r#"
+plugins:
+  - name: release-helpers
+    path: ./tools/helpers
+lanes:
+  release:
+    steps:
+      - id: tagged
+        action: tag_release
+        with:
+          version: 1.4.2
+          token: super-secret-api-token
+      - run: echo "tagged ${steps.tagged.tag} at ${steps.tagged.where}"
+"#;
+
+#[test]
+fn a_rhai_plugin_runs_with_the_same_builtins_a_lane_script_has() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        r#"
+fn tag_release(args) {
+    ui_message("tagging " + args.version);
+    let here = capture("echo from-the-plugin");
+    secret(args.token);
+    print("token is " + args.token);
+    #{ tag: "v" + args.version, where: here }
+}
+"#,
+    );
+
+    let run = sandbox.run(&["run", "release"]);
+    run.assert_code(0)
+        .assert_stdout_contains("tagging 1.4.2")
+        .assert_stdout_contains("tagged v1.4.2 at from-the-plugin");
+
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    assert!(
+        !everything.contains("super-secret-api-token"),
+        "a sensitive argument leaked from a Rhai plugin:\n{everything}"
+    );
+}
+
+#[test]
+fn a_rhai_plugin_is_listed_and_validated_like_any_other() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { #{ tag: args.version, where: \"here\" } }\n",
+    );
+
+    sandbox.run(&["validate"]).assert_code(0);
+
+    sandbox
+        .run(&["action", "show", "tag_release"])
+        .assert_code(0)
+        .assert_stdout_contains("Version to tag")
+        .assert_stdout_contains("masked in output");
+
+    sandbox
+        .run(&["plugin", "list"])
+        .assert_code(0)
+        .assert_stdout_contains("helpers.rhai (rhai)")
+        .assert_stdout_contains("tag_release");
+}
+
+#[test]
+fn a_rhai_plugin_that_fails_fails_the_lane() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { throw \"the tag already exists\"; }\n",
+    );
+
+    sandbox
+        .run(&["run", "release"])
+        .assert_code(1)
+        .assert_stderr_contains("the tag already exists");
+}
+
+#[test]
+fn a_rhai_plugin_cannot_call_back_into_the_action_registry() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { action(\"sh\", #{ command: \"echo hi\" }); }\n",
+    );
+
+    sandbox
+        .run(&["run", "release"])
+        .assert_code(1)
+        .assert_stderr_contains("not available inside a Rhai plugin");
+}
+
+#[test]
+fn plugin_verify_checks_a_rhai_script_against_its_manifest() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { #{ tag: \"v1\" } }\n",
+    );
+
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(0)
+        .assert_stdout_contains("agree with their manifests");
+
+    // The script no longer defines what the manifest promises.
+    sandbox.write(
+        "tools/helpers/helpers.rhai",
+        "fn something_else(args) { #{} }\n",
+    );
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("the script defines no such function");
+
+    // A script that does not compile is reported rather than left to a lane.
+    sandbox.write("tools/helpers/helpers.rhai", "fn broken( {{{\n");
+    sandbox.run(&["plugin", "verify"]).assert_code(2);
+}
+
+#[test]
+fn a_manifest_must_say_how_the_plugin_runs() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(&sandbox, "tools/helpers", "fn tag_release(args) {}\n");
+    sandbox.write(
+        "tools/helpers/shlane-plugin.yaml",
+        "name: release-helpers\nprotocol: 1\nexecutable: run.sh\nscript: helpers.rhai\nactions: []\n",
+    );
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("not both");
+}
+
+#[test]
+fn a_rhai_plugin_returning_the_wrong_shape_is_reported() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { \"just a string\" }\n",
+    );
+
+    sandbox
+        .run(&["run", "release"])
+        .assert_code(1)
+        .assert_stderr_contains("map of outputs");
+}
+
+#[test]
+fn capture_reads_for_real_under_dry_run() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - run: echo would-not-run
+    script: |
+      let version = capture("cat VERSION");
+      ui_message("version is " + version);
+      let changed = try_run("touch should-not-exist");
+      ui_message("change skipped: " + changed.success);
+"#,
+    );
+    sandbox.write("VERSION", "2.1.0\n");
+
+    let run = sandbox.run(&["run", "a", "--dry-run"]);
+    run.assert_code(0)
+        .assert_stdout_contains("version is 2.1.0")
+        .assert_stdout_contains("Would run: echo would-not-run");
+
+    assert!(
+        !sandbox.path().join("should-not-exist").exists(),
+        "--dry-run must still skip commands that change something"
+    );
+}

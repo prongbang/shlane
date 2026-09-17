@@ -19,7 +19,11 @@ pub fn list(found: &Discovered) -> Result<()> {
         let version = plugin.manifest.version.as_deref().unwrap_or("?");
         println!("{} {version}", plugin.manifest.name);
         println!("  path      {}", plugin.directory.display());
-        println!("  runs      {}", plugin.executable.display());
+        println!(
+            "  runs      {} ({})",
+            plugin.entry.display(),
+            plugin.kind.as_str()
+        );
         println!("  checksum  sha256:{}", plugin.checksum()?);
         println!(
             "  locked    {}",
@@ -121,6 +125,13 @@ pub fn verify(found: &Discovered) -> Result<()> {
     let mut problems = Vec::new();
 
     for plugin in &plugins {
+        // A Rhai plugin has no process to ask; checking that it compiles and
+        // defines what it promises is the same question.
+        if plugin.kind == plugin::Kind::Rhai {
+            problems.extend(verify_rhai(plugin));
+            continue;
+        }
+
         for declared in &plugin.manifest.actions {
             match describe(plugin, &declared.name) {
                 Ok((description, reported)) => {
@@ -201,6 +212,35 @@ pub fn verify(found: &Discovered) -> Result<()> {
     })
 }
 
+/// Compile a Rhai plugin and check it defines a function per declared action.
+fn verify_rhai(plugin: &Loaded) -> Vec<String> {
+    let engine = rhai::Engine::new();
+    let ast = match plugin::rhai_action::compile(&engine, &plugin.entry) {
+        Ok(ast) => ast,
+        Err(message) => return vec![format!("{}: {message}", plugin.manifest.name)],
+    };
+
+    let defined = plugin::rhai_action::function_names(&ast);
+    plugin
+        .manifest
+        .actions
+        .iter()
+        .filter(|declared| !defined.contains(&declared.name))
+        .map(|declared| {
+            format!(
+                "{}: the manifest declares '{}' but the script defines no such function (it defines: {})",
+                plugin.manifest.name,
+                declared.name,
+                if defined.is_empty() {
+                    "nothing".to_string()
+                } else {
+                    defined.join(", ")
+                }
+            )
+        })
+        .collect()
+}
+
 type Described = (Option<String>, Vec<protocol::DescribedArg>);
 
 fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, String> {
@@ -213,13 +253,13 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         false,
     );
 
-    let mut child = Command::new(&plugin.executable)
+    let mut child = Command::new(&plugin.entry)
         .current_dir(&plugin.directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|err| format!("cannot start {}: {err}", plugin.executable.display()))?;
+        .map_err(|err| format!("cannot start {}: {err}", plugin.entry.display()))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(request.as_bytes());

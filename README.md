@@ -377,6 +377,8 @@ lanes:
           message: shipped
 ```
 
+A plugin is either a program that speaks the JSON protocol, or a Rhai script.
+
 ```yaml
 # tools/line-notify/shlane-plugin.yaml
 name: line-notify
@@ -404,8 +406,46 @@ The plugin reads one JSON object on stdin and writes one JSON object per line ba
 {"type":"result","ok":true,"outputs":{"id":"msg-1"}}
 ```
 
-`shlane plugin lock` records each executable's SHA-256 in `shlane-plugins.lock`, and a
-plugin that no longer matches is refused — a plugin runs with the same permissions as
+### A plugin written in Rhai
+
+For glue — a few commands and some logic — a plugin can be a script instead of a
+program. It needs no compiler and no separate process, and gets the same builtins a
+lane's own script has.
+
+```yaml
+# tools/helpers/shlane-plugin.yaml
+name: release-helpers
+protocol: 1
+script: helpers.rhai        # instead of executable:
+actions:
+  - name: tag_release
+    args:
+      - name: prefix
+        default: "v"
+```
+
+```rhai
+// tools/helpers/helpers.rhai — one function per action
+fn tag_release(args) {
+    let version = capture("cat VERSION");
+    if args.dry_run { return #{ tag: args.prefix + version, created: "false" }; }
+
+    run("git tag " + args.prefix + version);
+    #{ tag: args.prefix + version, created: "true" }   // the step's outputs
+}
+```
+
+The function is given the declared arguments plus `dry_run`, and returns a map of
+outputs, or nothing. `action()` is the one builtin it does not get: the registry holds
+the plugin, so a plugin cannot be handed the registry back.
+
+`shlane plugin verify` compiles the script and checks it defines a function for every
+action the manifest declares.
+
+### Keeping a plugin honest
+
+`shlane plugin lock` records the SHA-256 of whatever runs in `shlane-plugins.lock`, and
+a plugin that no longer matches is refused — a plugin runs with the same permissions as
 shlane, on the machine holding the signing keys. `shlane plugin verify` asks each
 plugin to describe itself and reports where its manifest has drifted.
 

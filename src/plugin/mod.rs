@@ -12,6 +12,7 @@
 pub mod action;
 pub mod install;
 pub mod protocol;
+pub mod rhai_action;
 pub mod source;
 
 use crate::actions::Action;
@@ -32,7 +33,11 @@ pub struct Manifest {
     pub version: Option<String>,
     pub protocol: u32,
     /// Path to the executable, relative to the plugin directory.
-    pub executable: String,
+    #[serde(default)]
+    pub executable: Option<String>,
+    /// Path to a Rhai script, for a plugin that is glue rather than a program.
+    #[serde(default)]
+    pub script: Option<String>,
     #[serde(default)]
     pub actions: Vec<ManifestAction>,
 }
@@ -61,18 +66,52 @@ pub struct ManifestArg {
     pub sensitive: bool,
 }
 
+/// How a plugin is run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A program that speaks the JSON protocol.
+    Executable,
+    /// A Rhai script, run in shlane's own engine.
+    Rhai,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Executable => "executable",
+            Self::Rhai => "rhai",
+        }
+    }
+}
+
 /// A plugin that has been found and checked.
 pub struct Loaded {
     pub manifest: Manifest,
     pub directory: PathBuf,
-    pub executable: PathBuf,
+    /// The executable or the script, depending on `kind`.
+    pub entry: PathBuf,
+    pub kind: Kind,
+}
+
+impl Manifest {
+    /// Which file runs, and how. Exactly one of the two must be given.
+    pub fn entry(&self) -> std::result::Result<(Kind, &str), String> {
+        match (&self.executable, &self.script) {
+            (Some(executable), None) => Ok((Kind::Executable, executable)),
+            (None, Some(script)) => Ok((Kind::Rhai, script)),
+            (Some(_), Some(_)) => {
+                Err("give either `executable:` or `script:`, not both".to_string())
+            }
+            (None, None) => Err("needs either `executable:` or `script:`".to_string()),
+        }
+    }
 }
 
 impl Loaded {
-    /// SHA-256 of the executable, for the lockfile.
+    /// SHA-256 of whatever actually runs, for the lockfile.
     pub fn checksum(&self) -> Result<String> {
-        let bytes = fs::read(&self.executable).map_err(|source| ShlaneError::ConfigUnreadable {
-            path: self.executable.clone(),
+        let bytes = fs::read(&self.entry).map_err(|source| ShlaneError::ConfigUnreadable {
+            path: self.entry.clone(),
             source,
         })?;
         let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
@@ -132,7 +171,8 @@ fn load_one(reference: &PluginRef, root: &Path) -> Result<Loaded> {
     };
 
     let directory = match (&reference.path, &reference.source) {
-        (Some(path), _) => root.join(path),
+        // "./tools/x" would otherwise show up as "<root>/./tools/x".
+        (Some(path), _) => root.join(path.trim_start_matches("./")),
         (None, Some(source)) => {
             // Fetched plugins live in one place; a missing one is a missing
             // install, not a broken config.
@@ -184,19 +224,24 @@ fn load_one(reference: &PluginRef, root: &Path) -> Result<Loaded> {
         )));
     }
 
-    let executable = directory.join(&manifest.executable);
-    if !executable.is_file() {
+    let (kind, relative) = manifest
+        .entry()
+        .map_err(|message| problems(format!("plugin '{}': {message}", manifest.name)))?;
+
+    let entry = directory.join(relative);
+    if !entry.is_file() {
         return Err(problems(format!(
             "plugin '{}': {} does not exist",
             manifest.name,
-            executable.display()
+            entry.display()
         )));
     }
 
     Ok(Loaded {
         manifest,
         directory,
-        executable,
+        entry,
+        kind,
     })
 }
 
@@ -205,11 +250,19 @@ pub fn actions(loaded: Vec<Loaded>) -> Vec<Box<dyn Action>> {
     let mut actions: Vec<Box<dyn Action>> = Vec::new();
     for plugin in loaded {
         for declared in &plugin.manifest.actions {
-            actions.push(Box::new(action::PluginAction::new(
-                declared.clone(),
-                plugin.manifest.name.clone(),
-                plugin.executable.clone(),
-            )));
+            let action: Box<dyn Action> = match plugin.kind {
+                Kind::Executable => Box::new(action::PluginAction::new(
+                    declared.clone(),
+                    plugin.manifest.name.clone(),
+                    plugin.entry.clone(),
+                )),
+                Kind::Rhai => Box::new(rhai_action::RhaiAction::new(
+                    declared.clone(),
+                    plugin.manifest.name.clone(),
+                    plugin.entry.clone(),
+                )),
+            };
+            actions.push(action);
         }
     }
     actions
@@ -283,6 +336,35 @@ mod tests {
         assert_eq!(manifest.name, "line-notify");
         assert_eq!(manifest.actions.len(), 1);
         assert!(manifest.actions[0].args[0].sensitive);
+    }
+
+    #[test]
+    fn a_manifest_names_either_an_executable_or_a_script() {
+        let executable: Manifest =
+            serde_yaml::from_str("name: a\nprotocol: 1\nexecutable: bin/notify\nactions: []\n")
+                .expect("valid");
+        assert_eq!(
+            executable.entry().expect("one entry"),
+            (Kind::Executable, "bin/notify")
+        );
+
+        let script: Manifest =
+            serde_yaml::from_str("name: a\nprotocol: 1\nscript: notify.rhai\nactions: []\n")
+                .expect("valid");
+        assert_eq!(
+            script.entry().expect("one entry"),
+            (Kind::Rhai, "notify.rhai")
+        );
+
+        let both: Manifest = serde_yaml::from_str(
+            "name: a\nprotocol: 1\nexecutable: bin/x\nscript: x.rhai\nactions: []\n",
+        )
+        .expect("valid");
+        assert!(both.entry().is_err());
+
+        let neither: Manifest =
+            serde_yaml::from_str("name: a\nprotocol: 1\nactions: []\n").expect("valid");
+        assert!(neither.entry().is_err());
     }
 
     #[test]

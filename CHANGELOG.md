@@ -67,6 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `install: false` fetches and decrypts without touching a keychain, which is also
     how it is tested on Linux.
 
+#### Added later in M6
+
+- **Plugins can be written in Rhai.** A manifest with `script:` instead of
+  `executable:` points at a `.rhai` file with one function per action. The function
+  receives the declared arguments plus `dry_run` and returns a map of outputs. It gets
+  the same builtins a lane's script has, except `action()` — the registry holds the
+  plugin, so it cannot be handed the registry back; calling it says exactly that rather
+  than "function not found".
+- `shlane plugin verify` compiles a Rhai plugin and checks it defines a function for
+  every action its manifest declares.
+
+#### Fixed
+
+- **`capture()` returned nothing under `--dry-run`**, so a script computing a tag from
+  `capture("cat VERSION")` produced `v` instead of `v2.1.0`. Reads now run for real and
+  only changes are skipped, which is what actions already did.
+
 #### Changed
 
 - Actions are looked up through a registry built per run, since which actions exist now

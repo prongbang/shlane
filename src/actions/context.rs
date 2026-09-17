@@ -1,6 +1,7 @@
 //! What an action is given to work with.
 
 use crate::error::{Result, ShlaneError};
+use crate::runtime::context::{SharedFrame, SharedOutputs};
 use crate::runtime::secrets::SharedSecrets;
 use crate::runtime::shell::{self, Spawn};
 use crate::runtime::ui::Ui;
@@ -15,6 +16,10 @@ pub struct ActionContext<'a> {
     pub dry_run: bool,
     pub ui: Rc<Ui>,
     pub secrets: SharedSecrets,
+    /// The running lane's state, so a plugin written in Rhai can reach the same
+    /// builtins a lane's own script has.
+    pub frame: SharedFrame,
+    pub outputs: SharedOutputs,
 }
 
 impl ActionContext<'_> {

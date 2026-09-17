@@ -193,7 +193,7 @@ impl<'a> Runner<'a> {
             outputs: outputs.clone(),
             secrets: secrets.clone(),
             ui: ui.clone(),
-            registry: registry.clone(),
+            registry: Some(registry.clone()),
         });
 
         Ok(Self {
@@ -498,6 +498,8 @@ impl<'a> Runner<'a> {
             dry_run,
             ui: self.ui.clone(),
             secrets: self.secrets.clone(),
+            frame: self.frame.clone(),
+            outputs: self.outputs.clone(),
         };
 
         let output = action.run(&mut ctx, &args)?;
