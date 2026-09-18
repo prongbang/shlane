@@ -302,7 +302,7 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
             let said = String::from_utf8_lossy(&output.stderr)
                 .lines()
                 .map(str::to_string)
-                .chain(ignored.into_iter())
+                .chain(ignored)
                 .filter(|line| !line.trim().is_empty())
                 .collect::<Vec<_>>();
 
