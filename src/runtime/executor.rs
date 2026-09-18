@@ -11,7 +11,7 @@ use crate::config::validate;
 use crate::error::{Result, ShlaneError};
 use crate::script;
 use crate::script::builtins::Runtime;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -55,8 +55,8 @@ struct Record {
     duration: Duration,
 }
 
-pub struct Runner<'a> {
-    config: &'a Config,
+pub struct Runner {
+    config: Rc<Config>,
     registry: Rc<crate::actions::Registry>,
     root: PathBuf,
     options: Options,
@@ -67,23 +67,58 @@ pub struct Runner<'a> {
     ui: Rc<Ui>,
     engine: rhai::Engine,
     scope: rhai::Scope<'static>,
-    records: Vec<Record>,
-    depth: usize,
+    /// Shared so a lane called from a script lands in the same summary as one
+    /// called by a `lane:` step.
+    records: Rc<RefCell<Vec<Record>>>,
+    /// Shared for the same reason, and because it is what stops a lane that
+    /// calls itself from recursing until the stack runs out.
+    depth: Rc<Cell<usize>>,
+}
+
+/// Everything a nested lane call needs, without borrowing the runner that is
+/// currently executing.
+///
+/// `call_lane()` is a Rhai builtin, and the engine it runs in belongs to the
+/// runner, so the builtin cannot be handed `&mut Runner`. It builds a second
+/// runner instead, sharing the frame, outputs, secrets and summary, which is
+/// exactly what a `lane:` step does by recursing.
+struct LaneCall {
+    config: Rc<Config>,
+    registry: Rc<crate::actions::Registry>,
+    root: PathBuf,
+    options: Options,
+    frame: SharedFrame,
+    outputs: SharedOutputs,
+    cleanups: SharedCleanups,
+    secrets: SharedSecrets,
+    ui: Rc<Ui>,
+    records: Rc<RefCell<Vec<Record>>>,
+    depth: Rc<Cell<usize>>,
+}
+
+impl crate::script::builtins::LaneCaller for LaneCall {
+    fn call(&self, name: &str, params: BTreeMap<String, String>) -> Result<()> {
+        let mut runner = Runner::sharing(self);
+        self.depth.set(self.depth.get() + 1);
+        let result = runner.run_lane_inner(name, params);
+        self.depth.set(self.depth.get().saturating_sub(1));
+        result
+    }
 }
 
 /// Run a lane and print a summary of what happened.
 pub fn run_lane(
-    config: &Config,
+    config: Rc<Config>,
     root: &Path,
     lane_name: &str,
     params: BTreeMap<String, String>,
     options: Options,
 ) -> Result<()> {
     let registry = Rc::new(crate::actions::Registry::builtins().with_plugins(
-        crate::plugin::actions(crate::plugin::load_all(config, root)?),
+        crate::plugin::actions(crate::plugin::load_all(&config, root)?),
     ));
 
-    let problems = validate::check(config, &registry);
+    let problems = validate::check(&config, &registry);
     if !problems.is_empty() {
         return Err(ShlaneError::ConfigProblems {
             path: root.join("shlane.yaml"),
@@ -109,7 +144,7 @@ pub fn run_lane(
     signals::install();
 
     let reports = options.reports.clone();
-    let mut runner = Runner::new(config, root, options, registry)?;
+    let mut runner = Runner::new(config.clone(), root, options, registry)?;
     let outcome = runner.run(lane_name, params);
     runner.print_summary();
 
@@ -147,16 +182,16 @@ pub fn run_lane(
     outcome
 }
 
-impl<'a> Runner<'a> {
+impl Runner {
     fn new(
-        config: &'a Config,
+        config: Rc<Config>,
         root: &Path,
         options: Options,
         registry: Rc<crate::actions::Registry>,
     ) -> Result<Self> {
         let mut secret_registry = Secrets::new();
         let env = environment::build(
-            config,
+            &config,
             root,
             options.profile.as_deref(),
             &mut secret_registry,
@@ -191,13 +226,35 @@ impl<'a> Runner<'a> {
         let outputs: SharedOutputs = Rc::new(RefCell::new(Outputs::default()));
         let cleanups: SharedCleanups = Rc::new(RefCell::new(Vec::new()));
 
+        let records: Rc<RefCell<Vec<Record>>> = Rc::new(RefCell::new(Vec::new()));
+        let depth = Rc::new(Cell::new(0));
+
+        let caller = Rc::new(LaneCall {
+            config: config.clone(),
+            registry: registry.clone(),
+            root: root.to_path_buf(),
+            options: options.clone(),
+            frame: frame.clone(),
+            outputs: outputs.clone(),
+            cleanups: cleanups.clone(),
+            secrets: secrets.clone(),
+            ui: ui.clone(),
+            records: records.clone(),
+            depth: depth.clone(),
+        });
+
         let engine = script::engine::build(&Runtime {
             frame: frame.clone(),
             outputs: outputs.clone(),
             secrets: secrets.clone(),
             ui: ui.clone(),
             cleanups: cleanups.clone(),
-            registry: Some(registry.clone()),
+            // Weak: the registry can hold a Rhai plugin, whose engine holds
+            // this runtime, so a strong handle here would be a cycle that
+            // never frees.
+            registry: Rc::downgrade(&registry),
+            lane_caller: Some(caller),
+            depth: depth.clone(),
         });
 
         Ok(Self {
@@ -212,16 +269,65 @@ impl<'a> Runner<'a> {
             ui,
             engine,
             scope: rhai::Scope::new(),
-            records: Vec::new(),
-            depth: 0,
+            records,
+            depth,
         })
+    }
+
+    /// A second runner over the same run: same frame, outputs, secrets and
+    /// summary, its own Rhai engine and scope.
+    fn sharing(call: &LaneCall) -> Self {
+        let caller = Rc::new(LaneCall {
+            config: call.config.clone(),
+            registry: call.registry.clone(),
+            root: call.root.clone(),
+            options: call.options.clone(),
+            frame: call.frame.clone(),
+            outputs: call.outputs.clone(),
+            cleanups: call.cleanups.clone(),
+            secrets: call.secrets.clone(),
+            ui: call.ui.clone(),
+            records: call.records.clone(),
+            depth: call.depth.clone(),
+        });
+
+        let engine = script::engine::build(&Runtime {
+            frame: call.frame.clone(),
+            outputs: call.outputs.clone(),
+            secrets: call.secrets.clone(),
+            ui: call.ui.clone(),
+            cleanups: call.cleanups.clone(),
+            registry: Rc::downgrade(&call.registry),
+            lane_caller: Some(caller),
+            depth: call.depth.clone(),
+        });
+
+        Self {
+            config: call.config.clone(),
+            registry: call.registry.clone(),
+            root: call.root.clone(),
+            options: call.options.clone(),
+            frame: call.frame.clone(),
+            outputs: call.outputs.clone(),
+            cleanups: call.cleanups.clone(),
+            secrets: call.secrets.clone(),
+            ui: call.ui.clone(),
+            engine,
+            scope: rhai::Scope::new(),
+            records: call.records.clone(),
+            depth: call.depth.clone(),
+        }
     }
 
     fn run(&mut self, lane_name: &str, params: BTreeMap<String, String>) -> Result<()> {
         self.ui
             .event(&[("type", "lane_started"), ("lane", lane_name)]);
 
-        if let Some(shared) = &self.config.script {
+        // A local handle, so the borrow of the lane below is on this Rc and
+        // not on `self`, which the steps need mutably.
+        let config = self.config.clone();
+
+        if let Some(shared) = &config.script {
             self.ui.detail("Loading shared script...");
             let source = shared.clone();
             script::load_shared(&mut self.engine, &mut self.scope, &source).map_err(|message| {
@@ -235,12 +341,12 @@ impl<'a> Runner<'a> {
 
         // The lane's frame is entered before `before_all` so the global hooks
         // can see ${shlane.lane} and the lane's parameters.
-        let lane = match self.config.lanes.get(lane_name) {
+        let lane = match config.lanes.get(lane_name) {
             Some(lane) => lane,
             None => {
                 return Err(ShlaneError::LaneNotFound {
                     name: lane_name.to_string(),
-                    available: self.config.public_lane_names(),
+                    available: config.public_lane_names(),
                 })
             }
         };
@@ -249,14 +355,14 @@ impl<'a> Runner<'a> {
         self.lane_env(lane)?;
 
         let result = self
-            .run_steps("before_all", lane_name, &self.config.before_all)
+            .run_steps("before_all", lane_name, &config.before_all)
             .and_then(|()| self.run_lane_body(lane_name, lane))
-            .and_then(|()| self.run_steps("after_all", lane_name, &self.config.after_all));
+            .and_then(|()| self.run_steps("after_all", lane_name, &config.after_all));
 
-        if result.is_err() && !self.config.error.is_empty() {
+        if result.is_err() && !config.error.is_empty() {
             self.ui.say("\nRunning error hooks...");
             // A failing error hook must not replace the failure that caused it.
-            if let Err(err) = self.run_steps("error", lane_name, &self.config.error) {
+            if let Err(err) = self.run_steps("error", lane_name, &config.error) {
                 self.ui.warn(&format!("an error hook itself failed: {err}"));
             }
         }
@@ -312,7 +418,7 @@ impl<'a> Runner<'a> {
     }
 
     fn run_lane_inner(&mut self, lane_name: &str, params: BTreeMap<String, String>) -> Result<()> {
-        if self.depth >= MAX_DEPTH {
+        if self.depth.get() >= MAX_DEPTH {
             return Err(ShlaneError::Script {
                 lane: lane_name.to_string(),
                 phase: "lane",
@@ -320,13 +426,13 @@ impl<'a> Runner<'a> {
             });
         }
 
-        let lane = self
-            .config
+        let config = self.config.clone();
+        let lane = config
             .lanes
             .get(lane_name)
             .ok_or_else(|| ShlaneError::LaneNotFound {
                 name: lane_name.to_string(),
-                available: self.config.lane_names(),
+                available: config.lane_names(),
             })?;
 
         let params = resolve_params(lane_name, lane, params)?;
@@ -340,7 +446,7 @@ impl<'a> Runner<'a> {
     }
 
     fn run_lane_body(&mut self, lane_name: &str, lane: &Lane) -> Result<()> {
-        if self.depth > 0 {
+        if self.depth.get() > 0 {
             self.ui.say(&format!("\n-> lane '{lane_name}'"));
             self.ui
                 .event(&[("type", "lane_started"), ("lane", lane_name)]);
@@ -365,13 +471,9 @@ impl<'a> Runner<'a> {
             let duration = started.elapsed();
             match result {
                 Ok(()) => self.record(lane_name, "script", Status::Ok, duration),
-                Err(message) => {
+                Err(failure) => {
                     self.record(lane_name, "script", Status::Failed, duration);
-                    return Err(ShlaneError::Script {
-                        lane: lane_name.to_string(),
-                        phase: "lane",
-                        message,
-                    });
+                    return Err(script_error(lane_name, "lane", failure));
                 }
             }
         }
@@ -488,19 +590,14 @@ impl<'a> Runner<'a> {
                     return Ok(());
                 }
                 let source = source.clone();
-                script::eval(&self.engine, &mut self.scope, &source).map_err(|message| {
-                    ShlaneError::Script {
-                        lane: lane_name.to_string(),
-                        phase: "step",
-                        message,
-                    }
-                })
+                script::eval(&self.engine, &mut self.scope, &source)
+                    .map_err(|failure| script_error(lane_name, "step", failure))
             }
             StepKind::Lane { name, with } => {
                 let with = self.interpolate_map(with)?;
-                self.depth += 1;
+                self.depth.set(self.depth.get() + 1);
                 let result = self.run_lane_inner(name, with);
-                self.depth -= 1;
+                self.depth.set(self.depth.get().saturating_sub(1));
                 result
             }
             StepKind::Action { name, with } => self.execute_action(step, name, with),
@@ -552,6 +649,8 @@ impl<'a> Runner<'a> {
             frame: self.frame.clone(),
             outputs: self.outputs.clone(),
             cleanups: self.cleanups.clone(),
+            registry: Rc::downgrade(&self.registry),
+            depth: self.depth.clone(),
         };
 
         let output = action.run(&mut ctx, &args)?;
@@ -727,7 +826,7 @@ impl<'a> Runner<'a> {
     }
 
     fn record(&mut self, lane: &str, label: &str, status: Status, duration: Duration) {
-        self.records.push(Record {
+        self.records.borrow_mut().push(Record {
             lane: lane.to_string(),
             label: label.to_string(),
             status,
@@ -738,6 +837,7 @@ impl<'a> Runner<'a> {
     /// The run's steps, for `--report`.
     fn step_reports(&self) -> Vec<crate::report::StepReport> {
         self.records
+            .borrow()
             .iter()
             .map(|record| crate::report::StepReport {
                 lane: record.lane.clone(),
@@ -753,20 +853,19 @@ impl<'a> Runner<'a> {
     }
 
     fn print_summary(&self) {
-        if self.records.is_empty() {
+        if self.records.borrow().is_empty() {
             return;
         }
 
-        let total: Duration = self.records.iter().map(|record| record.duration).sum();
-        let lane_width = self
-            .records
+        let records = self.records.borrow();
+        let total: Duration = records.iter().map(|record| record.duration).sum();
+        let lane_width = records
             .iter()
             .map(|record| record.lane.chars().count())
             .max()
             .unwrap_or(4)
             .max(4);
-        let label_width = self
-            .records
+        let label_width = records
             .iter()
             .map(|record| record.label.chars().count())
             .max()
@@ -780,7 +879,7 @@ impl<'a> Runner<'a> {
             "  {:>3}  {:<lane_width$}  {:<label_width$}  {:<8}  {:>8}",
             "#", "lane", "step", "result", "time"
         ));
-        for (index, record) in self.records.iter().enumerate() {
+        for (index, record) in records.iter().enumerate() {
             self.ui.say(&format!(
                 "  {:>3}  {:<lane_width$}  {:<label_width$}  {:<8}  {:>8}",
                 index + 1,
@@ -798,6 +897,24 @@ impl<'a> Runner<'a> {
             "total",
             format_duration(total),
         ));
+    }
+}
+
+/// Turn a script failure into an error.
+///
+/// A failure raised by a builtin -- an action that failed, a lane that could
+/// not be called -- is already a shlane error, and is passed through whole. Only
+/// a mistake in the script itself gets wrapped, so a lane that calls itself
+/// reports the nesting limit rather than one wrapper per level with the reason
+/// buried at the end.
+fn script_error(lane: &str, phase: &'static str, failure: script::Failure) -> ShlaneError {
+    match failure {
+        script::Failure::Shlane(inner) => inner,
+        script::Failure::Script(message) => ShlaneError::Script {
+            lane: lane.to_string(),
+            phase,
+            message,
+        },
     }
 }
 

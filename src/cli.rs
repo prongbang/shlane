@@ -210,7 +210,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             let found = load(file.as_deref(), &base)?;
             let params = runtime::parse_params(params);
             runtime::run_lane(
-                &found.config,
+                std::rc::Rc::new(found.config),
                 &found.root,
                 &name,
                 params,

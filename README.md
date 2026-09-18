@@ -501,6 +501,7 @@ lanes:
 | `try_run(cmd)` | `CmdResult` | Returns the failure instead of raising it |
 | `capture(cmd)` | string | stdout, trimmed, without echoing — and it runs under `--dry-run` |
 | `action(name, args)` | map | Run an action and get its outputs |
+| `call_lane(name, params)` | | Run another lane, private ones included |
 | `param(key)` / `param_or(key, default)` / `has_param(key)` | | |
 | `env(key)` / `set_env(key, value)` | | `set_env` applies to later steps |
 | `set_output(key, value)` / `output(id, key)` | | Pass values between steps |
@@ -510,7 +511,13 @@ lanes:
 
 `CmdResult` has `.stdout`, `.stderr`, `.code` and `.success`.
 
-Use a `lane:` step to call another lane; there is no `call_lane()`.
+`call_lane()` and a `lane:` step do the same thing — the script form is for when the
+decision to call is itself conditional. Either way the called lane gets its own
+parameters, shares the outputs and the summary, and nesting stops at 16 deep so a lane
+that calls itself reports that rather than exhausting the stack.
+
+An action that fails inside a script reports the action's own error. The script is not
+wrapped around it, so a failure five lanes down still reads as one line.
 
 ## Plugins
 
@@ -559,8 +566,9 @@ An executable plugin reads one JSON object on stdin and writes one per line back
 ```
 
 A Rhai plugin is one function per action, given the declared arguments plus `dry_run`
-and returning a map of outputs. It gets the same builtins a lane's script has, except
-`action()` — the registry holds the plugin, so a plugin cannot be handed it back.
+and returning a map of outputs. It gets the same builtins a lane's script has, including
+`action()`, except `call_lane()` — a plugin runs as one step and has no lane to return
+to.
 
 ```rhai
 fn tag_release(args) {

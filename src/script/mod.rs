@@ -12,10 +12,50 @@ use rhai::{Engine, Module, Scope};
 /// * the script's trailing value is discarded. `eval_with_scope::<()>` rejected
 ///   any script ending in an expression, so a lane ending in `run("...")` failed
 ///   with "Output type incorrect" even though the command had run fine.
-pub fn eval(engine: &Engine, scope: &mut Scope<'_>, source: &str) -> Result<(), String> {
-    engine
-        .run_with_scope(scope, source)
-        .map_err(|err| err.to_string())
+pub fn eval(engine: &Engine, scope: &mut Scope<'_>, source: &str) -> Result<(), Failure> {
+    engine.run_with_scope(scope, source).map_err(Failure::from)
+}
+
+/// Why a script stopped.
+///
+/// A builtin that calls an action or another lane fails with a real
+/// [`ShlaneError`](crate::error::ShlaneError) inside it. Stringifying that at
+/// every level turns a lane calling itself into a screen of
+/// "step script failed: lane: step script failed: ..." with the actual reason
+/// at the end, so the original error is carried out whole instead.
+pub enum Failure {
+    /// An error from shlane itself, raised by a builtin.
+    Shlane(crate::error::ShlaneError),
+    /// A mistake in the script: a syntax error, a missing function, a type.
+    Script(String),
+}
+
+impl From<Box<rhai::EvalAltResult>> for Failure {
+    fn from(err: Box<rhai::EvalAltResult>) -> Self {
+        match unwrap_shlane(*err) {
+            Ok(inner) => Self::Shlane(inner),
+            Err(message) => Self::Script(message),
+        }
+    }
+}
+
+/// Dig a `ShlaneError` out of however deep Rhai wrapped it.
+///
+/// A failure inside a called function arrives as `ErrorInFunctionCall` around
+/// the `ErrorSystem` a builtin raised.
+fn unwrap_shlane(err: rhai::EvalAltResult) -> Result<crate::error::ShlaneError, String> {
+    use rhai::EvalAltResult;
+    match err {
+        EvalAltResult::ErrorSystem(_, boxed) => match boxed.downcast::<crate::error::ShlaneError>()
+        {
+            Ok(inner) => Ok(*inner),
+            Err(other) => Err(other.to_string()),
+        },
+        EvalAltResult::ErrorInFunctionCall(name, _, inner, _) => {
+            unwrap_shlane(*inner).map_err(|message| if message.is_empty() { name } else { message })
+        }
+        other => Err(other.to_string()),
+    }
 }
 
 /// Evaluate a `if:` condition.

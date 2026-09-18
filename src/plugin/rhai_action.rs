@@ -41,7 +41,10 @@ pub fn engine_for(ctx: &ActionContext<'_>) -> rhai::Engine {
         secrets: ctx.secrets.clone(),
         ui: ctx.ui.clone(),
         cleanups: ctx.cleanups.clone(),
-        registry: None,
+        registry: ctx.registry.clone(),
+        // A plugin runs as one step; there is no lane for it to return to.
+        lane_caller: None,
+        depth: ctx.depth.clone(),
     })
 }
 

@@ -22,6 +22,11 @@ pub struct ActionContext<'a> {
     pub outputs: SharedOutputs,
     /// Commands to run once the run is over, whatever its result.
     pub cleanups: SharedCleanups,
+    /// So a Rhai plugin's `action()` can reach the same registry. Weak: the
+    /// registry holds the plugin, and a strong handle back would be a cycle.
+    pub registry: std::rc::Weak<crate::actions::Registry>,
+    /// Shared nesting depth, so a plugin calling its own action is bounded.
+    pub depth: Rc<std::cell::Cell<usize>>,
 }
 
 impl ActionContext<'_> {

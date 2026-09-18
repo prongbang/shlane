@@ -45,9 +45,10 @@ script.
 **Done when:** a test proves no secret escapes into the log in any form, and a value can
 be passed from one step to another.
 
-> Noted while implementing this: `call_lane()` and `action()` in Rhai are not done,
-> because they mean re-entering the executor from inside a builtin, which means pulling
-> the ownership apart — to be done with the action registry in M3. Logging uses a `ui`
+> Noted while implementing this: `call_lane()` and `action()` in Rhai mean re-entering
+> the executor from inside a builtin, which means pulling the ownership apart. `action()`
+> landed in M3; `call_lane()` later, by building a second runner over the same shared
+> state instead of borrowing the one that is executing. Logging uses a `ui`
 > module of its own instead of `tracing`: a CLI wants a steady event stream more than it
 > wants a subscriber stack.
 
@@ -61,8 +62,8 @@ be passed from one step to another.
 all.
 
 > The P0 set done, and later the P1/P2 rest: `which_tool`, `git_pull`, `zip`, `unzip`,
-> `copy_artifacts`, `download` and `template_render`, plus `action()` in Rhai. `call_lane()` is still not done — it needs a
-> nested executor — so a `lane:` step does it instead.
+> `copy_artifacts`, `download` and `template_render`, plus `action()` in Rhai.
+> `call_lane()` came later still, with a nested runner rather than a nested executor.
 >
 > Changed from the plan: `ureq` instead of `reqwest`, because a blocking CLI should not
 > carry an async runtime. The cost: MSRV moved 1.74 → 1.85, and the binary 3.6 → 5.4 MB.

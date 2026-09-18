@@ -9,6 +9,7 @@ use crate::runtime::secrets::SharedSecrets;
 use crate::runtime::shell::{self, Spawn};
 use crate::runtime::ui::Ui;
 use rhai::{Engine, EvalAltResult};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 /// What the builtins need to reach.
@@ -19,11 +20,29 @@ pub struct Runtime {
     pub secrets: SharedSecrets,
     pub ui: Rc<Ui>,
     pub cleanups: SharedCleanups,
-    /// `None` inside a Rhai plugin: the registry holds the plugin, so handing
-    /// the plugin the registry back would be a cycle. Such a script gets every
-    /// other builtin.
-    pub registry: Option<Rc<crate::actions::Registry>>,
+    /// Weak, because the registry can hold a Rhai plugin whose engine holds
+    /// this runtime: a strong handle would be a cycle that never frees. A
+    /// plugin therefore gets `action()` like any other script, and calling one
+    /// that no longer exists fails with a message instead of a leak.
+    pub registry: std::rc::Weak<crate::actions::Registry>,
+    /// `None` inside a Rhai plugin, which has no runner to re-enter.
+    pub lane_caller: Option<Rc<dyn LaneCaller>>,
+    /// How deep the lane and action nesting currently is, shared with the
+    /// runner so recursion is bounded wherever it started.
+    pub depth: Rc<std::cell::Cell<usize>>,
 }
+
+/// Running another lane from inside a script.
+///
+/// A trait rather than a direct call so the engine does not have to know about
+/// the runner that owns it -- which it cannot borrow while a builtin of its own
+/// is executing.
+pub trait LaneCaller {
+    fn call(&self, name: &str, params: BTreeMap<String, String>) -> crate::error::Result<()>;
+}
+
+/// The nesting limit, matching the runner's own.
+const MAX_DEPTH: usize = 32;
 
 /// What a command did. Returned by `run()`, `try_run()`.
 #[derive(Debug, Clone, Default)]
@@ -45,6 +64,9 @@ pub fn register(engine: &mut Engine, runtime: &Runtime) {
     // Registered even inside a Rhai plugin, where it cannot work: "Function not
     // found: action" tells nobody why.
     register_actions(engine, runtime.clone());
+    // Registered even inside a Rhai plugin, where there is no lane to return
+    // to: "Function not found: call_lane" explains nothing.
+    register_lanes(engine, runtime.clone());
     register_ci(engine, runtime.clone());
     register_ui(engine, runtime.clone());
 }
@@ -213,12 +235,47 @@ fn register_actions(engine: &mut Engine, runtime: Runtime) {
     });
 }
 
-fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::Map> {
-    let Some(registry) = runtime.registry.clone() else {
+/// `call_lane("notify", #{ channel: "#releases" })`.
+fn register_lanes(engine: &mut Engine, runtime: Runtime) {
+    let inner = runtime.clone();
+    engine.register_fn(
+        "call_lane",
+        move |name: &str, params: rhai::Map| -> Fallible<()> { call_lane(&inner, name, params) },
+    );
+
+    let inner = runtime;
+    engine.register_fn("call_lane", move |name: &str| -> Fallible<()> {
+        call_lane(&inner, name, rhai::Map::new())
+    });
+}
+
+fn call_lane(runtime: &Runtime, name: &str, params: rhai::Map) -> Fallible<()> {
+    let Some(caller) = &runtime.lane_caller else {
         return Err(
-            "action() is not available inside a Rhai plugin: the registry holds the plugin, so a plugin cannot be handed it back. Use run() or capture(), or write the plugin as an executable."
+            "call_lane() is not available inside a Rhai plugin: a plugin runs as one step and has no lane to return to. Use run() or capture()."
                 .into(),
         );
+    };
+
+    // A lane that calls itself would otherwise recurse until the stack runs
+    // out, which reads as a crash rather than a mistake in the config.
+    if runtime.depth.get() >= MAX_DEPTH {
+        return Err(format!("lanes nested more than {MAX_DEPTH} deep").into());
+    }
+
+    let params = params
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+    caller
+        .call(name, params)
+        .map_err(|err| EvalAltResult::ErrorSystem("lane".into(), Box::new(err)).into())
+}
+
+fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::Map> {
+    let Some(registry) = runtime.registry.upgrade() else {
+        return Err("the action registry is gone, so action() cannot dispatch".into());
     };
     let Some(action) = registry.find(name) else {
         return Err(format!(
@@ -268,6 +325,8 @@ fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::
         frame: runtime.frame.clone(),
         outputs: runtime.outputs.clone(),
         cleanups: runtime.cleanups.clone(),
+        registry: runtime.registry.clone(),
+        depth: runtime.depth.clone(),
     };
 
     let output = action

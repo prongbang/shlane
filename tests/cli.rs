@@ -2782,12 +2782,29 @@ fn a_rhai_plugin_that_fails_fails_the_lane() {
 }
 
 #[test]
-fn a_rhai_plugin_cannot_call_back_into_the_action_registry() {
+fn a_rhai_plugin_can_call_back_into_the_action_registry() {
     let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
     write_rhai_plugin(
         &sandbox,
         "tools/helpers",
-        "fn tag_release(args) { action(\"sh\", #{ command: \"echo hi\" }); }\n",
+        "fn tag_release(args) { let r = action(\"sh\", #{ command: \"echo from-the-plugin\" }); #{ tag: \"v1\", where: r.stdout } }\n",
+    );
+
+    // The registry is reached through a weak handle, so the plugin it holds can
+    // be handed it back without the two keeping each other alive.
+    sandbox
+        .run(&["run", "release"])
+        .assert_code(0)
+        .assert_stdout_contains("from-the-plugin");
+}
+
+#[test]
+fn a_rhai_plugin_has_no_lane_to_call_back_into() {
+    let sandbox = Sandbox::new(RHAI_PLUGIN_CONFIG);
+    write_rhai_plugin(
+        &sandbox,
+        "tools/helpers",
+        "fn tag_release(args) { call_lane(\"release\"); #{ tag: \"v1\", where: \"here\" } }\n",
     );
 
     sandbox
@@ -3327,4 +3344,99 @@ lanes:
         .run(&["run", "sign"])
         .assert_code(0)
         .assert_stderr_contains("CODE_SIGN_IDENTITY does not appear in this project");
+}
+
+#[test]
+fn call_lane_runs_another_lane_from_a_script() {
+    // r##: the config contains `"#releases"`, and `"#` ends an r#"..."# string.
+    let sandbox = Sandbox::new(
+        r##"
+lanes:
+  main:
+    params:
+      target: { type: string, default: dev }
+    steps:
+      - script: |
+          call_lane("notify", #{ channel: "#releases", target: param("target") });
+          print("back in main");
+
+  notify:
+    private: true
+    params:
+      channel: { type: string, required: true }
+      target: { type: string, required: true }
+    steps:
+      - run: echo "notify ${params.channel} for ${params.target}"
+"##,
+    );
+
+    let run = sandbox.run(&["run", "main", "target=prod"]);
+    run.assert_code(0)
+        .assert_stdout_contains("notify #releases for prod")
+        .assert_stdout_contains("back in main");
+
+    // The called lane lands in the same summary as the caller, the way a
+    // `lane:` step does.
+    run.assert_stdout_contains("notify");
+}
+
+#[test]
+fn call_lane_stops_a_lane_that_calls_itself() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  loop:
+    steps:
+      - script: |
+          call_lane("loop");
+"#,
+    );
+
+    let run = sandbox.run(&["run", "loop"]);
+    run.assert_code(1)
+        .assert_stderr_contains("lanes nested more than");
+
+    // One line, not one wrapper per level with the reason buried at the end.
+    assert_eq!(
+        run.stderr.matches("nested more than").count(),
+        1,
+        "the nesting error should be reported once:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn an_action_that_fails_inside_a_script_reports_the_action_not_the_script() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  boom:
+    steps:
+      - script: |
+          action("sh", #{ command: "exit 3" });
+"#,
+    );
+
+    sandbox
+        .run(&["run", "boom"])
+        .assert_code(1)
+        .assert_stderr_contains("command failed with exit code 3");
+}
+
+#[test]
+fn call_lane_reports_a_lane_that_does_not_exist() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  main:
+    steps:
+      - script: |
+          call_lane("nope");
+"#,
+    );
+
+    sandbox
+        .run(&["run", "main"])
+        .assert_code(3)
+        .assert_stderr_contains("nope");
 }

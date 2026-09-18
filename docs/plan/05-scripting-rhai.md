@@ -103,7 +103,9 @@ Today a script error is printed and the run continues (`src/main.rs:125-127`). I
 `script_file: ./scripts/release.rhai`, so a long script can leave the YAML for a file
 an editor can highlight.
 
-> **What was actually built (M2, M3, M6):** all of the above except `call_lane()`,
-> which would mean re-entering the executor from inside a builtin. A `lane:` step does
-> the same thing. `action()` exists, but not inside a Rhai plugin: the registry holds
-> the plugin, so it cannot be handed the registry back.
+> **What was actually built (M2, M3, M6):** all of the above. `call_lane()` came last:
+> re-entering the executor from inside a builtin is impossible while the builtin's
+> engine belongs to that executor, so the builtin builds a second runner sharing the
+> frame, outputs, secrets and summary — which is what a `lane:` step does by recursing.
+> `action()` works inside a Rhai plugin too, reaching the registry through a weak handle
+> so the registry and the plugin it holds do not keep each other alive.
