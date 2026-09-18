@@ -283,7 +283,26 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
             protocol::Event::Describe { description, args } => Some((description, args)),
             _ => None,
         })
-        .ok_or_else(|| format!("'{action}' did not answer `describe`"))
+        .ok_or_else(|| {
+            // Whatever the plugin said about itself, rather than only that it
+            // said nothing we understood. Running a plugin relays its stderr
+            // (`plugin::action`); verify dropped it, which left a plugin that
+            // died on startup reporting nothing but "did not answer".
+            let mut message = format!("'{action}' did not answer `describe`");
+            if !output.status.success() {
+                message.push_str(&format!(
+                    " (exit code {})",
+                    output.status.code().unwrap_or(-1)
+                ));
+            }
+            for line in String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+            {
+                message.push_str(&format!("\n      {line}"));
+            }
+            message
+        })
 }
 
 /// Fetch a plugin, declare it in the config, and record its checksum.

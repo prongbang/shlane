@@ -3590,3 +3590,23 @@ lanes:
         "the directory should be named without quotes"
     );
 }
+
+#[test]
+fn plugin_verify_reports_what_a_plugin_said_before_it_died() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    // A plugin that fails on startup, the way a missing interpreter or an
+    // unreadable credential would.
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh\necho 'cannot reach the API: no token' >&2\nexit 7\n",
+    );
+
+    // "did not answer describe" on its own says nothing about why. Running a
+    // plugin relays its stderr; verify has to as well.
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("did not answer `describe` (exit code 7)")
+        .assert_stderr_contains("cannot reach the API: no token");
+}
