@@ -26,6 +26,11 @@ pub struct ArgSpec {
     pub default: Option<String>,
     /// Registered as a secret, so its value never reaches the output.
     pub sensitive: bool,
+    /// This argument is itself a shell command, so a `${...}` substituted into
+    /// it is escaped the way one in a `run:` step is. Without this, a value
+    /// carrying a space or a `;` would be re-read by the shell the action
+    /// hands it to.
+    pub shell: bool,
 }
 
 impl ArgSpec {
@@ -36,6 +41,7 @@ impl ArgSpec {
             required: false,
             default: None,
             sensitive: false,
+            shell: false,
         }
     }
 
@@ -51,6 +57,12 @@ impl ArgSpec {
 
     pub fn sensitive(mut self) -> Self {
         self.sensitive = true;
+        self
+    }
+
+    /// Mark an argument that is run as a shell command.
+    pub fn shell(mut self) -> Self {
+        self.shell = true;
         self
     }
 }

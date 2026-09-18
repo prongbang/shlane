@@ -142,7 +142,11 @@ all.
 > `appstore` is done: metadata from a fastlane-shaped directory, attaching a build, and
 > submitting for review, over the App Store Connect API. Not verified against Apple.
 >
-> **Not done:** the documentation site, and formally freezing schema v1. The Homebrew
+> Schema v1 is frozen: `docs/schema-v1.md` documents every key with the compatibility
+> promise, and `tests/schema_v1.rs` fails if a key is accepted without being written
+> down.
+>
+> **Not done:** the documentation site. The Homebrew
 > formula is generated and pushed by the release workflow, but `prongbang/homebrew-tap`
 > does not exist yet — see `packaging/homebrew/README.md`.
 >
@@ -153,7 +157,6 @@ all.
 > on a real Windows machine yet.
 
 - the full documentation, on the web
-- schema v1 frozen, with a backward-compatibility promise
 - the nightly e2e on both platforms green for two weeks running
 
 ## If there is only time for some of it

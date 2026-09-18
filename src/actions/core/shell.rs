@@ -17,7 +17,9 @@ impl Action for Sh {
     }
 
     fn schema(&self) -> Vec<ArgSpec> {
-        vec![ArgSpec::new("command", "The command to run").required()]
+        vec![ArgSpec::new("command", "The command to run")
+            .required()
+            .shell()]
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {

@@ -238,6 +238,11 @@ value really is meant to expand into several words, ask for it:
   - run: cargo build ${flags:raw}      # flags="--release --locked"
 ```
 
+The same applies to an action argument the action runs as a shell command, such as
+`sh`'s `command` — the guarantee should not depend on which of the two spellings you
+used. Every other argument is substituted literally, because an action decides what its
+own argument means, and quoting a file path would put the quotes in the path.
+
 Write `$${literal}` for a literal `${literal}`. Plain shell syntax (`$HOME`, `$(date)`)
 passes through untouched.
 
@@ -798,6 +803,10 @@ shlane looks for `bash` or `sh` on `PATH` and then in Git for Windows' usual loc
 and says so if it finds neither. `SHLANE_SHELL` points it somewhere else. Process groups
 and signal forwarding are POSIX-only, so on Windows a timed-out step is killed rather than
 asked to stop.
+
+The schema is documented in [`docs/schema-v1.md`](docs/schema-v1.md), which also states
+what will and will not change while shlane is on 1.x. `tests/schema_v1.rs` runs a config
+using every key in it, and fails if a key is accepted without being written down.
 
 The plan the project is being built to — gap analysis against fastlane, the action
 system, migration, milestones — is in [`docs/plan/`](docs/plan/README.md). Changes are

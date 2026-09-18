@@ -620,7 +620,17 @@ impl Runner {
             });
         };
 
-        let provided = self.interpolate_map(with)?;
+        // An argument the action runs as a shell command is escaped like a
+        // `run:` step. Everything else is substituted literally: an action
+        // decides what its own argument means, and quoting a file path would
+        // put quotes in the path.
+        let shell_args: Vec<String> = action
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.shell)
+            .map(|spec| spec.name)
+            .collect();
+        let provided = self.interpolate_args(with, &shell_args)?;
         let args = crate::actions::with_defaults(action, &provided);
 
         // Arguments the action declares as sensitive are hidden from here on.
@@ -799,6 +809,27 @@ impl Runner {
         };
         let rendered = self.with_vars(|vars| interpolate_plain(workdir, vars))?;
         Ok(self.frame.borrow().workdir.join(rendered))
+    }
+
+    /// Like [`interpolate_map`](Self::interpolate_map), escaping the arguments
+    /// named in `shell_args` the way a `run:` command is escaped.
+    fn interpolate_args(
+        &self,
+        map: &BTreeMap<String, String>,
+        shell_args: &[String],
+    ) -> Result<BTreeMap<String, String>> {
+        self.with_vars(|vars| {
+            map.iter()
+                .map(|(key, value)| {
+                    let rendered = if shell_args.contains(key) {
+                        interpolate(value, vars)?
+                    } else {
+                        interpolate_plain(value, vars)?
+                    };
+                    Ok((key.clone(), rendered))
+                })
+                .collect()
+        })
     }
 
     fn interpolate_map(&self, map: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {

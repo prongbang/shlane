@@ -3511,3 +3511,61 @@ lanes:
         .assert_code(5)
         .assert_stderr_contains("/definitely/not/a/shell");
 }
+
+#[test]
+fn a_value_substituted_into_the_sh_action_is_escaped_like_a_run_step() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  inject:
+    params:
+      evil:
+        type: string
+        default: "x; touch PWNED"
+    steps:
+      - action: sh
+        with:
+          command: echo ${params.evil}
+"#,
+    );
+
+    // `run:` escapes what it substitutes; an argument the action runs as a
+    // shell command has to do the same, or the guarantee depends on which of
+    // the two spellings someone used.
+    sandbox
+        .run(&["run", "inject"])
+        .assert_code(0)
+        .assert_stdout_contains("x; touch PWNED");
+
+    assert!(
+        !sandbox.path().join("PWNED").exists(),
+        "the value was re-read by the shell"
+    );
+}
+
+#[test]
+fn an_action_argument_that_is_not_a_command_is_substituted_literally() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  copy:
+    params:
+      dir:
+        type: string
+        default: "a dir with spaces"
+    steps:
+      - action: copy_artifacts
+        with:
+          paths: "src/one.txt"
+          into: ${params.dir}
+"#,
+    );
+    sandbox.write("src/one.txt", "x");
+
+    // Quoting a path would put the quotes in the path.
+    sandbox.run(&["run", "copy"]).assert_code(0);
+    assert!(
+        sandbox.path().join("a dir with spaces/one.txt").is_file(),
+        "the directory should be named without quotes"
+    );
+}
