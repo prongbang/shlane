@@ -157,9 +157,14 @@ all.
 >
 > The Windows binary is built and released now. Steps still run in a POSIX shell there —
 > the one Git for Windows ships — because the escaping applied to every substituted value
-> is POSIX, and `cmd.exe` would re-interpret it. Type-checked and linked for
-> `x86_64-pc-windows-gnu`; the tests run on `windows-latest` in CI, but nobody has used it
-> on a real Windows machine yet.
+> is POSIX, and `cmd.exe` would re-interpret it. A script plugin goes through that shell
+> too, and `zip`/`unzip` fall back to PowerShell.
+>
+> Adding the target and its CI job together was a mistake worth recording: the job could
+> not compile, so the tests never ran there, and three real gaps sat hidden behind one
+> unused-import error. The lesson is that a new platform's job has to be green on its own
+> tests before the platform counts as supported. Nobody has used it on a real Windows
+> machine yet, but its tests now run.
 
 - the full documentation, on the web
 - the nightly e2e on both platforms green for two weeks running

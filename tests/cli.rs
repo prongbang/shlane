@@ -3516,9 +3516,11 @@ lanes:
     );
 
     // The override is what makes shlane work on a machine whose POSIX shell is
-    // somewhere other than /bin/sh -- Windows, where it comes with Git.
+    // somewhere other than /bin/sh -- Windows, where it comes with Git and is
+    // found on PATH rather than at an absolute path.
+    let shell = if cfg!(windows) { "bash" } else { "/bin/sh" };
     sandbox
-        .run_with_env(&["run", "hello"], &[("SHLANE_SHELL", "/bin/sh")])
+        .run_with_env(&["run", "hello"], &[("SHLANE_SHELL", shell)])
         .assert_code(0)
         .assert_stdout_contains("which-shell");
 

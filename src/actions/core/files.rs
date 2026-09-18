@@ -117,16 +117,42 @@ impl Action for Zip {
             Some(output) if !output.is_empty() => output.to_string(),
             _ => format!("{path}.zip"),
         };
+        let excludes: Vec<&str> = args
+            .get("exclude")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|pattern| !pattern.is_empty())
+            .collect();
 
-        require_tool(ctx, self.name(), "zip")?;
-
-        let mut command = format!("zip -r -q {} {}", quote(&output), quote(path));
-        if let Some(exclude) = args.get("exclude") {
-            for pattern in exclude.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        if has_tool(ctx, "zip")? {
+            let mut command = format!("zip -r -q {} {}", quote(&output), quote(path));
+            for pattern in &excludes {
                 command.push_str(&format!(" -x {}", quote(pattern)));
             }
+            ctx.require(&command)?;
+            return Ok(ActionOutput::new().with("archive", output));
         }
-        ctx.require(&command)?;
+
+        // Windows has no `zip`, but it has PowerShell, and Compress-Archive
+        // stores the directory as the root entry exactly as `zip -r` does.
+        if !excludes.is_empty() {
+            // Never silently: a file the lane asked to keep out of an archive
+            // could be a keystore or a .env, and an archive gets uploaded.
+            return Err(ctx.error(
+                self.name(),
+                "'zip' is not installed, and the PowerShell fallback cannot exclude anything; install zip, or drop the exclude argument",
+            ));
+        }
+        let binary = require_powershell(ctx, self.name())?;
+        ctx.require(&powershell(
+            binary,
+            &format!(
+                "Compress-Archive -Path {} -DestinationPath {} -Force",
+                ps_quote(path),
+                ps_quote(&output)
+            ),
+        ))?;
 
         Ok(ActionOutput::new().with("archive", output))
     }
@@ -154,14 +180,29 @@ impl Action for Unzip {
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
         let archive = args.get_or("archive", "");
         let into = args.get_or("into", ".");
+        let overwrite = args.flag("overwrite");
 
-        require_tool(ctx, self.name(), "unzip")?;
+        if has_tool(ctx, "unzip")? {
+            let flag = if overwrite { "-o" } else { "-n" };
+            ctx.require(&format!(
+                "unzip -q {flag} {} -d {}",
+                quote(archive),
+                quote(into)
+            ))?;
+            return Ok(ActionOutput::new().with("into", into));
+        }
 
-        let flag = if args.flag("overwrite") { "-o" } else { "-n" };
-        ctx.require(&format!(
-            "unzip -q {flag} {} -d {}",
-            quote(archive),
-            quote(into)
+        let binary = require_powershell(ctx, self.name())?;
+        // Expand-Archive without -Force refuses to replace, which is what
+        // overwrite: false asks for.
+        let force = if overwrite { " -Force" } else { "" };
+        ctx.require(&powershell(
+            binary,
+            &format!(
+                "Expand-Archive -Path {} -DestinationPath {}{force}",
+                ps_quote(archive),
+                ps_quote(into)
+            ),
         ))?;
 
         Ok(ActionOutput::new().with("into", into))
@@ -479,13 +520,43 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Fail with something actionable when a binary an action needs is absent.
-fn require_tool(ctx: &ActionContext<'_>, action: &str, tool: &str) -> Result<()> {
-    let found = ctx.probe(&format!("command -v {tool}"))?;
-    if found.success {
-        return Ok(());
+/// Whether a binary is on PATH.
+///
+/// `probe`, not `sh`: under `--dry-run` the answer to "is it installed" has to
+/// be the real one, or the dry run reports a problem that does not exist.
+fn has_tool(ctx: &ActionContext<'_>, tool: &str) -> Result<bool> {
+    Ok(ctx.probe(&format!("command -v {tool}"))?.success)
+}
+
+/// Which PowerShell to use, preferring the cross-platform one.
+fn require_powershell(ctx: &ActionContext<'_>, action: &str) -> Result<&'static str> {
+    for candidate in ["pwsh", "powershell"] {
+        if has_tool(ctx, candidate)? {
+            return Ok(candidate);
+        }
     }
-    Err(ctx.error(action, format!("'{tool}' is not installed, or not on PATH")))
+    Err(ctx.error(
+        action,
+        "neither 'zip'/'unzip' nor PowerShell is available; install one of them",
+    ))
+}
+
+/// Run a PowerShell command from the POSIX shell steps already use.
+///
+/// The binary is chosen before this is built rather than with a `||` chain,
+/// which would run the command a second time when the first attempt failed for
+/// its own reasons.
+fn powershell(binary: &str, script: &str) -> String {
+    format!(
+        "{binary} -NoProfile -NonInteractive -Command {}",
+        quote(script)
+    )
+}
+
+/// Quote a path for PowerShell, where a single-quoted string escapes a quote by
+/// doubling it.
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn quote(value: &str) -> String {
@@ -536,6 +607,25 @@ mod tests {
                 ("Authorization".to_string(), "Bearer x".to_string()),
                 ("Accept".to_string(), "application/json".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn quotes_a_path_the_way_powershell_does() {
+        assert_eq!(ps_quote("build/app.zip"), "'build/app.zip'");
+        // PowerShell escapes a quote inside a single-quoted string by doubling it.
+        assert_eq!(ps_quote("it's here"), "'it''s here'");
+    }
+
+    #[test]
+    fn builds_a_powershell_command_the_posix_shell_can_carry() {
+        let command = powershell(
+            "pwsh",
+            "Compress-Archive -Path 'payload' -DestinationPath 'out.zip' -Force",
+        );
+        assert_eq!(
+            command,
+            "pwsh -NoProfile -NonInteractive -Command 'Compress-Archive -Path '\\''payload'\\'' -DestinationPath '\\''out.zip'\\'' -Force'"
         );
     }
 

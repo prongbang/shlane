@@ -62,7 +62,7 @@ pub struct Spawn<'a> {
 /// shell already: it comes with Git for Windows.
 ///
 /// `SHLANE_SHELL` overrides it, from the config's `env:` or the process.
-fn shell(env: &BTreeMap<String, String>) -> Result<String> {
+pub fn shell(env: &BTreeMap<String, String>) -> Result<String> {
     if let Some(configured) = env
         .get("SHLANE_SHELL")
         .cloned()
