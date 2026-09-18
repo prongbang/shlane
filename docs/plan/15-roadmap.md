@@ -138,13 +138,15 @@ all.
 > check, `action.yml`, and the release workflow (macOS arm64/x86-64, Linux
 > x86-64/arm64/musl).
 >
-> **Not done:** `appstore` (deliver — uploading metadata to the App Store), the
-> documentation site, the Homebrew tap, and formally freezing schema v1.
+> `appstore` is done: metadata from a fastlane-shaped directory, attaching a build, and
+> submitting for review, over the App Store Connect API. Not verified against Apple.
+>
+> **Not done:** the documentation site, the Homebrew tap, and formally freezing schema
+> v1.
 >
 > **There is no Windows binary:** the runner still calls `sh` directly. Saying so is
 > better than shipping a binary that fails on the first step.
 
-- `appstore` — upload metadata and submit for review
 - the full documentation, on the web
 - schema v1 frozen, with a backward-compatibility promise
 - the nightly e2e on both platforms green for two weeks running

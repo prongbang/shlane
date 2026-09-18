@@ -347,6 +347,7 @@ which must be installed.
 | `certificate` | Download a signing certificate (in place of `cert`) |
 | `xcode_settings` | Change signing settings in a `.xcodeproj` |
 | `testflight` | Upload a build to TestFlight |
+| `appstore` | Push App Store metadata, attach a build, submit for review |
 | `asc_request` | Any App Store Connect API call, authenticated |
 
 ```yaml
@@ -386,6 +387,33 @@ not be produced is a warning, not a failed lane. It needs Xcode 16 or newer.
 `API_PRIVATE_KEYS_DIR` at, with `0600` permissions, removed however the step ends.
 `asc_request` signs an ES256 token and calls any App Store Connect endpoint, so the
 parts of the API without a dedicated action are still reachable.
+
+`appstore` is deliver's half of the job — the metadata, not the binary:
+
+```yaml
+      - action: appstore
+        with:
+          bundle_id: com.example.app
+          version: "1.4.2"
+          metadata_dir: fastlane/metadata     # <locale>/description.txt, release_notes.txt, ...
+          whats_new: "Fixed the crash on launch"   # wins over the file, for this locale
+          build: "${steps.built.build_number}"
+          submit_for_review: false
+          key_id: ${ASC_KEY_ID}
+          issuer_id: ${ASC_ISSUER_ID}
+          key: ${ASC_KEY_P8}
+```
+
+It reads a fastlane-shaped metadata directory, so a project moving over keeps the files
+it has. A locale the version does not yet have is reported rather than created — adding
+a language is a store-listing decision, not a deploy-script one — and `name.txt` and
+`subtitle.txt` are called out as app-level metadata shlane does not set, instead of
+being quietly ignored. Under `--dry-run` it reads App Store Connect for real and prints
+every change it would make without making one.
+
+The binary still goes up through `testflight`: uploading to Apple is `altool`'s job, and
+reimplementing the transporter protocol to replace a tool every macOS runner already has
+would be a great deal of machinery for nothing.
 
 **These need macOS and Xcode.** What to run is decided by functions that are tested
 here; the round trip is not. [`examples/ios-sample`](examples/ios-sample) is a small

@@ -124,7 +124,7 @@ ios:
 | `certificate` (cert) | ✅ done, read-only — the public certificate only; Apple does not return the private key |
 | `xcode_settings` | ✅ done — changes settings the project already declares |
 | `setup_ci` | ✅ done — temporary keychain, deleted when the run ends either way |
-| `appstore` (deliver) | ❌ not done (M7) |
+| `appstore` (deliver) | ✅ done — metadata, build attach and submit, over the ASC API; the binary still goes up through `testflight` |
 
 ## Risks
 

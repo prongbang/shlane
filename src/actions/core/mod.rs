@@ -1,6 +1,7 @@
 //! Actions that are not tied to a platform (`docs/plan/06-actions-core.md`).
 
 pub mod android;
+pub mod appstore;
 pub mod ci;
 pub mod files;
 pub mod firebase;
@@ -41,6 +42,7 @@ pub fn all() -> Vec<Box<dyn Action>> {
         Box::new(ios::Keychain),
         Box::new(ios::TestFlight),
         Box::new(ios::AscRequest),
+        Box::new(appstore::AppStore),
         Box::new(ci::SetupCi),
         Box::new(play::PlayStore),
         Box::new(firebase::FirebaseDistribution),

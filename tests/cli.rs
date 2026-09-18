@@ -3440,3 +3440,47 @@ lanes:
         .assert_code(3)
         .assert_stderr_contains("nope");
 }
+
+#[test]
+fn appstore_declares_what_it_needs_before_reaching_apple() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  release:
+    steps:
+      - action: appstore
+        with:
+          bundle_id: com.example.app
+"#,
+    );
+
+    // Caught by validate, so a release lane does not fail after the build.
+    let run = sandbox.run(&["validate"]);
+    run.assert_code(2)
+        .assert_stderr_contains("action 'appstore' needs 'version'")
+        .assert_stderr_contains("action 'appstore' needs 'key_id'");
+}
+
+#[test]
+fn appstore_rejects_an_argument_it_does_not_take() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  release:
+    steps:
+      - action: appstore
+        with:
+          bundle_id: com.example.app
+          version: "1.0"
+          key_id: k
+          issuer_id: i
+          key: pem
+          skip_screenshots: true
+"#,
+    );
+
+    sandbox
+        .run(&["validate"])
+        .assert_code(2)
+        .assert_stderr_contains("skip_screenshots");
+}

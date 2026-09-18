@@ -13,6 +13,24 @@ pub struct Mapping {
 
 const MAPPINGS: &[Mapping] = &[
     Mapping {
+        fastlane: "deliver",
+        shlane: "appstore",
+        renames: &[
+            ("app_identifier", "bundle_id"),
+            ("metadata_path", "metadata_dir"),
+        ],
+        add: &[],
+    },
+    Mapping {
+        fastlane: "upload_to_app_store",
+        shlane: "appstore",
+        renames: &[
+            ("app_identifier", "bundle_id"),
+            ("metadata_path", "metadata_dir"),
+        ],
+        add: &[],
+    },
+    Mapping {
         fastlane: "setup_ci",
         shlane: "setup_ci",
         renames: &[("keychain_name", "keychain_name"), ("timeout", "timeout")],
@@ -199,7 +217,6 @@ pub fn unsupported(name: &str) -> Option<&'static str> {
         "sigh" | "get_provisioning_profile" | "cert" | "get_certificates" => {
             Some("signing is handled by Xcode via -allowProvisioningUpdates; there is no direct equivalent")
         }
-        "deliver" | "upload_to_app_store" => Some("uploading metadata to the App Store is not implemented yet"),
         "snapshot" | "screengrab" | "frameit" | "precheck" | "produce" | "pem" => {
             Some("no equivalent; keep using a `run:` step for this")
         }
@@ -236,8 +253,11 @@ mod tests {
     #[test]
     fn explains_what_has_no_equivalent() {
         assert!(unsupported("match").is_some());
-        assert!(unsupported("deliver").is_some());
+        assert!(unsupported("snapshot").is_some());
         assert!(unsupported("gym").is_none());
+        // deliver has an action now, so it is mapped rather than explained away.
+        assert!(unsupported("deliver").is_none());
+        assert_eq!(lookup("deliver").expect("mapped").shlane, "appstore");
     }
 
     #[test]
