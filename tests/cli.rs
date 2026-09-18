@@ -2990,3 +2990,140 @@ lanes:
         .assert_code(0)
         .assert_stdout_contains("Nothing in this config downloads anything worth caching");
 }
+
+/// A git repository holding a minimal Rhai plugin, to fetch from.
+fn plugin_repo(at: &Path) {
+    fs::create_dir_all(at).expect("plugin source should be creatable");
+    fs::write(
+        at.join("shlane-plugin.yaml"),
+        "name: greeter\nversion: 0.1.0\nprotocol: 1\nscript: greeter.rhai\nactions:\n  - name: greet\n    description: Say hello\n    args:\n      - name: who\n        description: Who to greet\n        required: true\n",
+    )
+    .expect("manifest should be writable");
+    fs::write(
+        at.join("greeter.rhai"),
+        "fn greet(args) {\n    ui_message(\"hello \" + args.who);\n    #{ greeted: args.who }\n}\n",
+    )
+    .expect("script should be writable");
+
+    for args in [
+        vec!["init", "-q", "."],
+        vec!["add", "-A"],
+        vec![
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "init",
+        ],
+        vec!["tag", "v0.1.0"],
+    ] {
+        let status = Command::new("git")
+            .args(&args)
+            .current_dir(at)
+            .status()
+            .expect("git should be runnable");
+        assert!(status.success(), "git {args:?} failed");
+    }
+}
+
+#[test]
+fn plugin_add_fetches_declares_and_locks() {
+    let sandbox = Sandbox::new("# keep me\nlanes:\n  hello:\n    steps:\n      - run: echo hi\n");
+    let source = sandbox.path().join("source");
+    plugin_repo(&source);
+
+    sandbox
+        .run(&["plugin", "add", &format!("git:{}@v0.1.0", source.display())])
+        .assert_code(0)
+        .assert_stdout_contains("Added greeter 0.1.0");
+
+    let config = fs::read_to_string(sandbox.path().join("shlane.yaml")).expect("config readable");
+    assert!(config.contains("# keep me"), "comments survive:\n{config}");
+    assert!(config.contains("- name: greeter"), "{config}");
+
+    let lock =
+        fs::read_to_string(sandbox.path().join("shlane-plugins.lock")).expect("lockfile written");
+    assert!(lock.contains("greeter sha256:"), "{lock}");
+
+    // And the action it provides is now callable.
+    sandbox.write(
+        "shlane.yaml",
+        &config.replace(
+            "      - run: echo hi",
+            "      - run: echo hi\n      - action: greet\n        with:\n          who: world",
+        ),
+    );
+    sandbox
+        .run(&["run", "hello"])
+        .assert_code(0)
+        .assert_stdout_contains("hello world");
+}
+
+#[test]
+fn plugin_remove_refuses_while_a_lane_still_calls_it() {
+    let sandbox = Sandbox::new("lanes:\n  hello:\n    steps:\n      - run: echo hi\n");
+    let source = sandbox.path().join("source");
+    plugin_repo(&source);
+    sandbox
+        .run(&["plugin", "add", &format!("git:{}@v0.1.0", source.display())])
+        .assert_code(0);
+
+    let config = fs::read_to_string(sandbox.path().join("shlane.yaml")).expect("config readable");
+    sandbox.write(
+        "shlane.yaml",
+        &config.replace(
+            "      - run: echo hi",
+            "      - run: echo hi\n      - action: greet\n        with:\n          who: world",
+        ),
+    );
+
+    // Removing it here would leave a config that no longer validates, and the
+    // failure would surface later as "no such action".
+    sandbox
+        .run(&["plugin", "remove", "greeter"])
+        .assert_code(2)
+        .assert_stderr_contains("still provides actions this config uses");
+
+    assert!(
+        sandbox.path().join(".shlane/plugins/greeter").is_dir(),
+        "a refused removal must not delete anything"
+    );
+
+    sandbox
+        .run(&["plugin", "remove", "greeter", "--force"])
+        .assert_code(0)
+        .assert_stdout_contains("Removed greeter");
+    assert!(!sandbox.path().join(".shlane/plugins/greeter").exists());
+}
+
+#[test]
+fn plugin_remove_drops_the_declaration_and_the_directory() {
+    let sandbox = Sandbox::new("lanes:\n  hello:\n    steps:\n      - run: echo hi\n");
+    let source = sandbox.path().join("source");
+    plugin_repo(&source);
+    sandbox
+        .run(&["plugin", "add", &format!("git:{}@v0.1.0", source.display())])
+        .assert_code(0);
+
+    sandbox
+        .run(&["plugin", "remove", "greeter"])
+        .assert_code(0)
+        .assert_stdout_contains("Removed greeter");
+
+    let config = fs::read_to_string(sandbox.path().join("shlane.yaml")).expect("config readable");
+    assert!(!config.contains("greeter"), "{config}");
+    // An empty `plugins:` key left behind is untidy, so it goes too.
+    assert!(!config.contains("plugins:"), "{config}");
+    sandbox.run(&["validate"]).assert_code(0);
+}
+
+#[test]
+fn plugin_remove_reports_a_name_that_is_not_declared() {
+    let sandbox = Sandbox::new("lanes:\n  hello:\n    steps:\n      - run: echo hi\n");
+    sandbox
+        .run(&["plugin", "remove", "nothing"])
+        .assert_code(2)
+        .assert_stderr_contains("is not declared in this config");
+}

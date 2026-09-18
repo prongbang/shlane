@@ -10,6 +10,7 @@
 //! and the lockfile then holds what was installed in place.
 
 pub mod action;
+pub mod declare;
 pub mod install;
 pub mod protocol;
 pub mod rhai_action;

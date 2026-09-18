@@ -64,6 +64,20 @@ enum ActionCommands {
 
 #[derive(Subcommand)]
 enum PluginCommands {
+    /// Fetch a plugin, declare it in the config, and lock its checksum
+    Add {
+        #[arg(value_name = "SOURCE", help = "github:owner/repo@tag, or a git URL")]
+        source: String,
+    },
+    /// Undeclare a plugin and delete what was fetched for it
+    Remove {
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Remove it even though lanes still call its actions
+        #[arg(long)]
+        force: bool,
+    },
     /// Fetch the plugins the config declares with a source
     Install {
         /// Fetch again even when the plugin is already installed
@@ -246,6 +260,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Commands::Plugin { command } => {
             let found = load(file.as_deref(), &base)?;
             match command {
+                PluginCommands::Add { source } => plugins::add(&found, &source),
+                PluginCommands::Remove { name, force } => plugins::remove(&found, &name, force),
                 PluginCommands::Install { force } => plugins::install(&found, force),
                 PluginCommands::List => plugins::list(&found),
                 PluginCommands::Lock => plugins::lock(&found),

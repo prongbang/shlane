@@ -110,7 +110,7 @@ shlane run deploy target=staging
 | `shlane init` | Write a starter config, guessing the project type |
 | `shlane env` | The environment a lane would run with, secrets masked |
 | `shlane action list` / `show <name>` | The built-in actions and their arguments |
-| `shlane plugin install/list/lock/verify` | Fetch and inspect plugins |
+| `shlane plugin add/remove/install/list/lock/verify` | Manage and inspect plugins |
 | `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
 | `shlane cache-paths` | The paths a CI should cache for this config |
 | `shlane completions <shell>` | A shell completion script |
@@ -540,10 +540,18 @@ A plugin runs with the same permissions as shlane, on the machine holding the si
 keys, so:
 
 ```sh
+shlane plugin add github:someone/shlane-line@v0.1.0   # fetch, declare, and lock in one go
 shlane plugin install     # fetches what the config declares; never part of a run
 shlane plugin lock        # records each SHA-256; commit shlane-plugins.lock
 shlane plugin verify      # each plugin against its own manifest
+shlane plugin remove line # undeclare it, and delete what was fetched
 ```
+
+`add` writes the entry into your `shlane.yaml` as text, so comments and formatting
+survive, and takes the plugin's name from its manifest rather than from the URL. `remove`
+refuses while a lane still calls one of the plugin's actions — otherwise the config stops
+validating and the failure turns up later as "no such action" — and `--force` overrides
+it. A `path:` plugin is only undeclared, never deleted: that directory is yours.
 
 A lane whose plugin is missing says so and stops rather than downloading anything. A
 source with no `@tag` is flagged, and if the lockfile already has an entry, a plugin

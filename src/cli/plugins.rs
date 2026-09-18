@@ -280,3 +280,234 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         })
         .ok_or_else(|| format!("'{action}' did not answer `describe`"))
 }
+
+/// Fetch a plugin, declare it in the config, and record its checksum.
+///
+/// Deliberately separate from `shlane run`: installing a plugin puts somebody
+/// else's code on the machine holding the signing keys, so it happens when a
+/// person asks for it and never as a side effect of a build.
+pub fn add(found: &Discovered, spec: &str) -> Result<()> {
+    let problem = |message: String| ShlaneError::ConfigProblems {
+        path: found.path.clone(),
+        problems: vec![message],
+    };
+
+    let source = plugin::source::parse(spec).map_err(problem)?;
+
+    // Fetched into a scratch directory first, because the plugin's real name
+    // comes from its manifest and not from the URL it was written as.
+    let staging = found.root.join(plugin::install::DIRECTORY).join(".adding");
+    let _ = std::fs::remove_dir_all(&staging);
+    if let Some(parent) = staging.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| ShlaneError::ConfigUnreadable {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    plugin::install::clone(&source, &staging).map_err(problem)?;
+
+    let result = add_fetched(found, spec, &source, &staging);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn add_fetched(
+    found: &Discovered,
+    spec: &str,
+    source: &plugin::source::Source,
+    staging: &std::path::Path,
+) -> Result<()> {
+    let problem = |message: String| ShlaneError::ConfigProblems {
+        path: found.path.clone(),
+        problems: vec![message],
+    };
+
+    let manifest_path = staging.join(plugin::MANIFEST);
+    let text = std::fs::read_to_string(&manifest_path).map_err(|_| {
+        problem(format!(
+            "what was fetched has no {} in it, so it is not a shlane plugin",
+            plugin::MANIFEST
+        ))
+    })?;
+    let manifest: plugin::Manifest = serde_yaml::from_str(&text)
+        .map_err(|err| problem(format!("{} is not valid: {err}", plugin::MANIFEST)))?;
+
+    if found
+        .config
+        .plugins
+        .iter()
+        .any(|declared| declared.name == manifest.name)
+    {
+        return Err(problem(format!(
+            "'{}' is already declared in this config",
+            manifest.name
+        )));
+    }
+
+    let directory = plugin::install::directory_for(&found.root, &manifest.name);
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::rename(staging, &directory).map_err(|source| ShlaneError::ConfigUnreadable {
+        path: directory.clone(),
+        source,
+    })?;
+
+    let config_text =
+        std::fs::read_to_string(&found.path).map_err(|source| ShlaneError::ConfigUnreadable {
+            path: found.path.clone(),
+            source,
+        })?;
+    let updated = plugin::declare::insert(&config_text, &manifest.name, spec).map_err(problem)?;
+    std::fs::write(&found.path, updated).map_err(|source| ShlaneError::ConfigUnreadable {
+        path: found.path.clone(),
+        source,
+    })?;
+
+    println!(
+        "Added {} {} to {}",
+        manifest.name,
+        manifest.version.as_deref().unwrap_or("(no version)"),
+        found.path.display()
+    );
+    println!("  installed into {}", directory.display());
+    if source.is_floating() {
+        println!(
+            "  warning: nothing pins this plugin; add @<tag> to the source so a moved tag cannot change what runs"
+        );
+    }
+
+    // Reloaded from disk: the config in hand predates the entry just written.
+    let reloaded = crate::config::loader::open(&found.path)?;
+    let plugins = plugin::load_all_unverified(&reloaded.config, &reloaded.root)?;
+    let path = plugin::write_lockfile(&reloaded.root, &plugins)?;
+    println!("  recorded in {}", path.display());
+    println!("\nCommit both: a plugin runs with the same permissions as shlane itself.");
+    Ok(())
+}
+
+/// Undeclare a plugin and delete what was fetched for it.
+pub fn remove(found: &Discovered, name: &str, force: bool) -> Result<()> {
+    let problem = |message: String| ShlaneError::ConfigProblems {
+        path: found.path.clone(),
+        problems: vec![message],
+    };
+
+    let declared = found
+        .config
+        .plugins
+        .iter()
+        .find(|declared| declared.name == name)
+        .ok_or_else(|| {
+            problem(format!(
+                "'{name}' is not declared in this config (declared: {})",
+                if found.config.plugins.is_empty() {
+                    "none".to_string()
+                } else {
+                    found
+                        .config
+                        .plugins
+                        .iter()
+                        .map(|plugin| plugin.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            ))
+        })?;
+    let was_fetched = declared.path.is_none();
+
+    // Removing a plugin a lane still calls leaves a config that no longer
+    // validates, and the failure surfaces later as "no such action" with
+    // nothing to connect it back to this command.
+    let still_used = steps_using(found, name)?;
+    if !still_used.is_empty() && !force {
+        return Err(problem(format!(
+            "'{name}' still provides actions this config uses:\n    {}\n  remove those steps first, or pass --force",
+            still_used.join("\n    ")
+        )));
+    }
+
+    let config_text =
+        std::fs::read_to_string(&found.path).map_err(|source| ShlaneError::ConfigUnreadable {
+            path: found.path.clone(),
+            source,
+        })?;
+    let updated = plugin::declare::remove(&config_text, name).map_err(problem)?;
+    std::fs::write(&found.path, updated).map_err(|source| ShlaneError::ConfigUnreadable {
+        path: found.path.clone(),
+        source,
+    })?;
+    println!("Removed {name} from {}", found.path.display());
+
+    // Only what shlane fetched is deleted. A `path:` plugin is the user's own
+    // directory, and removing a declaration is not permission to delete it.
+    if was_fetched {
+        let directory = plugin::install::directory_for(&found.root, name);
+        if directory.is_dir() {
+            std::fs::remove_dir_all(&directory).map_err(|source| {
+                ShlaneError::ConfigUnreadable {
+                    path: directory.clone(),
+                    source,
+                }
+            })?;
+            println!("  deleted {}", directory.display());
+        }
+    } else {
+        println!("  left {} alone: it is not shlane's to delete", name);
+    }
+
+    let reloaded = crate::config::loader::open(&found.path)?;
+    let plugins = plugin::load_all_unverified(&reloaded.config, &reloaded.root)?;
+    let path = plugin::write_lockfile(&reloaded.root, &plugins)?;
+    println!("  updated {}", path.display());
+
+    if !still_used.is_empty() {
+        println!(
+            "\nwarning: this config still calls {} action(s) that are now gone; `shlane validate` will say where",
+            still_used.len()
+        );
+    }
+    Ok(())
+}
+
+/// Where the config still calls an action this plugin provides, as
+/// `lane: action`.
+fn steps_using(found: &Discovered, name: &str) -> Result<Vec<String>> {
+    use crate::config::model::StepKind;
+
+    let loaded = plugin::load_all_unverified(&found.config, &found.root)?;
+    let Some(plugin) = loaded.iter().find(|loaded| loaded.manifest.name == name) else {
+        // Declared but never fetched: there is nothing it could be providing.
+        return Ok(Vec::new());
+    };
+    let provides: Vec<&str> = plugin
+        .manifest
+        .actions
+        .iter()
+        .map(|action| action.name.as_str())
+        .collect();
+
+    let mut used = Vec::new();
+    let mut scan = |where_: &str, steps: &[crate::config::model::Step]| {
+        for step in steps {
+            if let StepKind::Action { name, .. } = &step.kind {
+                if provides.contains(&name.as_str()) {
+                    used.push(format!("{where_}: {name}"));
+                }
+            }
+        }
+    };
+
+    scan("before_all", &found.config.before_all);
+    scan("after_all", &found.config.after_all);
+    scan("error", &found.config.error);
+    for (lane_name, lane) in &found.config.lanes {
+        scan(lane_name, &lane.before);
+        scan(lane_name, &lane.steps);
+        scan(lane_name, &lane.after);
+    }
+
+    used.sort();
+    used.dedup();
+    Ok(used)
+}

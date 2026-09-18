@@ -80,7 +80,7 @@ shlane plugin verify          # checksum and protocol version
 
 - external-executable plugins (option A), with all of protocol v1
 - `path:` and `source:` (`github:owner/repo@tag`, a git URL, ssh)
-- `shlane plugin install / list / lock / verify`
+- `shlane plugin add / remove / install / list / lock / verify`
 - SHA-256 in the lockfile — a tag that has been moved is rejected, not installed over
 
 - Rhai module plugins (option B) — the manifest carries `script:` instead of

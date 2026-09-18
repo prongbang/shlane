@@ -106,7 +106,7 @@ fn install_one(reference: &PluginRef, spec: &str, root: &Path, force: bool) -> R
     })
 }
 
-fn clone(source: &Source, into: &Path) -> std::result::Result<(), String> {
+pub fn clone(source: &Source, into: &Path) -> std::result::Result<(), String> {
     let mut command = Command::new("git");
     command.arg("clone").arg("--depth").arg("1").arg("--quiet");
     if let Some(reference) = &source.reference {
