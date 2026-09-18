@@ -129,8 +129,9 @@ all.
 >   against the lockfile; never installed automatically during a run)
 > - ~~Rhai module plugins (option B)~~ ✅ done
 > - ~~a `codesign_sync` that reads an existing match repo~~ ✅ done, read-only
-> - ~~the GitHub Action wrapper~~ ✅ done (`action.yml` and `install.sh`); the Homebrew
->   tap is still not done
+> - ~~the GitHub Action wrapper~~ ✅ done (`action.yml` and `install.sh`)
+> - ~~the Homebrew tap~~ ✅ the formula and the release job are in `packaging/homebrew/`;
+>   the tap repository itself has to be created by hand, and has not been
 
 ## M7 — 1.0 ⚠️ partly done
 
@@ -141,8 +142,9 @@ all.
 > `appstore` is done: metadata from a fastlane-shaped directory, attaching a build, and
 > submitting for review, over the App Store Connect API. Not verified against Apple.
 >
-> **Not done:** the documentation site, the Homebrew tap, and formally freezing schema
-> v1.
+> **Not done:** the documentation site, and formally freezing schema v1. The Homebrew
+> formula is generated and pushed by the release workflow, but `prongbang/homebrew-tap`
+> does not exist yet — see `packaging/homebrew/README.md`.
 >
 > The Windows binary is built and released now. Steps still run in a POSIX shell there —
 > the one Git for Windows ships — because the escaping applied to every substituted value

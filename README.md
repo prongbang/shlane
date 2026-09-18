@@ -48,6 +48,7 @@ shlane run beta
 ## Install
 
 ```sh
+brew install prongbang/tap/shlane                    # macOS and Linux
 curl -fsSL https://raw.githubusercontent.com/prongbang/shlane/master/install.sh | sh
 ```
 
@@ -61,9 +62,9 @@ From source:
 cargo install --path .
 ```
 
-Prebuilt binaries cover macOS (Apple Silicon and Intel) and Linux (x86-64, arm64,
-musl). There is no Windows build: the runner shells out to `sh`, so it would fail on
-the first step.
+Prebuilt binaries cover macOS (Apple Silicon and Intel), Linux (x86-64, arm64, musl)
+and Windows (x86-64). On Windows, steps run in the POSIX shell that comes with Git for
+Windows — see [Development](#development) for why.
 
 ## Quick start
 
