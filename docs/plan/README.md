@@ -35,6 +35,7 @@ of about 200 lines — to a tool that can stand in for
 | [13-testing-and-quality.md](13-testing-and-quality.md) | How this gets tested, and how the code is kept honest |
 | [14-release-and-distribution.md](14-release-and-distribution.md) | Building and shipping the binary |
 | [15-roadmap.md](15-roadmap.md) | Milestones M0–M7, the order of work, and the risks |
+| [16-whats-left.md](16-whats-left.md) | What remains at 0.2.0, checked against the code |
 
 ## How to read it
 
@@ -43,3 +44,4 @@ of about 200 lines — to a tool that can stand in for
   later is expensive.
 - `06`–`09` are the bulk of the work — the part that makes "replaces fastlane" true.
 - `15` is the order to actually do it in. Starting tomorrow means starting at M0.
+- `16` is where it stopped: what is left, and what nobody has verified yet.
