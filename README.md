@@ -804,6 +804,12 @@ quotes differently, would turn the escaping back into the injection it exists to
 shlane looks for `bash` or `sh` on `PATH` and then in Git for Windows' usual locations,
 and says so if it finds neither. `SHLANE_SHELL` points it somewhere else.
 
+It resolves that to a full path, and skips `bash.exe` in the Windows system directory.
+That one is the launcher for the Windows Subsystem for Linux, not a POSIX shell, and on
+a machine with no WSL distribution installed it exits with "has no installed
+distributions" — which is what every step would have run through, because Windows
+resolves a bare program name against the system directory before `PATH`.
+
 Two other things differ there. A plugin whose entry is a script goes through that same
 shell, because Windows has no shebang handling and would otherwise refuse to start a
 `.sh`. And `zip`/`unzip` fall back to PowerShell's `Compress-Archive`/`Expand-Archive`

@@ -79,10 +79,8 @@ pub fn shell(env: &BTreeMap<String, String>) -> Result<String> {
 
     #[cfg(windows)]
     {
-        for candidate in ["bash.exe", "sh.exe"] {
-            if which(candidate) {
-                return Ok(candidate.to_string());
-            }
+        if let Some(found) = which("bash.exe").or_else(|| which("sh.exe")) {
+            return Ok(found.display().to_string());
         }
         for candidate in GIT_BASH {
             if Path::new(candidate).is_file() {
@@ -99,12 +97,56 @@ pub fn shell(env: &BTreeMap<String, String>) -> Result<String> {
     }
 }
 
+/// The first `program` on PATH, as a full path, skipping the WSL launcher.
+///
+/// The full path matters: handed a bare `bash.exe`, Windows resolves it with
+/// its own search order, which puts the system directory ahead of PATH. That
+/// directory holds `bash.exe`, the launcher for the Windows Subsystem for
+/// Linux, so a machine with no WSL distribution installed ran every step
+/// through something that exits 1 with "has no installed distributions"
+/// instead of through the shell that was actually found.
 #[cfg(windows)]
-fn which(program: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
+fn which(program: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let system_root = std::env::var_os("SystemRoot").map(std::path::PathBuf::from);
+
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| {
+            candidate.is_file() && !is_wsl_launcher(candidate, system_root.as_deref())
+        })
+}
+
+/// Whether this is the WSL launcher rather than a POSIX shell.
+///
+/// It lives in the Windows system directory, which is the one place a real
+/// POSIX shell never does.
+///
+/// Compiled for the tests everywhere, because the rule is about the shape of a
+/// path and is worth checking on the machines this is written on, but only
+/// called on Windows.
+#[cfg(any(windows, test))]
+fn is_wsl_launcher(candidate: &Path, system_root: Option<&Path>) -> bool {
+    let Some(system_root) = system_root else {
         return false;
     };
-    std::env::split_paths(&path).any(|dir| dir.join(program).is_file())
+
+    // Compared as normalised strings rather than with `Path::parent`, so the
+    // rule holds anywhere: off Windows a backslash is an ordinary character
+    // and `parent()` would see one long file name.
+    let normalise = |path: &Path| {
+        path.to_string_lossy()
+            .to_ascii_lowercase()
+            .replace('\\', "/")
+    };
+    let candidate = normalise(candidate);
+    let root = normalise(system_root).trim_end_matches('/').to_string();
+
+    ["system32", "sysnative"].iter().any(|directory| {
+        candidate
+            .strip_prefix(&format!("{root}/{directory}/"))
+            .is_some_and(|rest| !rest.contains('/'))
+    })
 }
 
 pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
@@ -272,4 +314,56 @@ fn stop(child: &mut Child) {
     }
 
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// These run everywhere: the rule is about a path, not about the platform,
+    /// and a Windows-only test would leave it uncovered on the machines where
+    /// the code is usually written.
+    #[test]
+    fn the_wsl_launcher_is_recognised_wherever_windows_keeps_it() {
+        let system_root = Path::new(r"C:\Windows");
+        for launcher in [
+            r"C:\Windows\System32\bash.exe",
+            r"C:\Windows\system32\bash.exe",
+            r"C:\WINDOWS\System32\bash.exe",
+            r"C:\Windows\Sysnative\bash.exe",
+        ] {
+            assert!(
+                is_wsl_launcher(Path::new(launcher), Some(system_root)),
+                "{launcher} is the WSL launcher, not a POSIX shell"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_shell_is_not_mistaken_for_the_launcher() {
+        let system_root = Path::new(r"C:\Windows");
+        for shell in [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\sh.exe",
+            r"C:\tools\msys64\usr\bin\bash.exe",
+            // Nested deeper than the system directory itself.
+            r"C:\Windows\System32\config\bash.exe",
+            "/bin/sh",
+        ] {
+            assert!(
+                !is_wsl_launcher(Path::new(shell), Some(system_root)),
+                "{shell} is a real shell"
+            );
+        }
+    }
+
+    #[test]
+    fn without_a_system_root_nothing_is_excluded() {
+        // Better to run a shell that might be the launcher than to refuse to
+        // find any shell at all.
+        assert!(!is_wsl_launcher(
+            Path::new(r"C:\Windows\System32\bash.exe"),
+            None
+        ));
+    }
 }

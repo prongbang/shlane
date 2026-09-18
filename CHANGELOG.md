@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     same way `zip -r` does. `exclude` is refused rather than silently dropped in that
     path: a file the lane asked to keep out could be a keystore, and an archive gets
     uploaded.
+  - **Every step could have run through the WSL launcher.** `bash.exe` was looked up on
+    `PATH` but handed to Windows as a bare name, and Windows resolves that against the
+    system directory first — where `bash.exe` is the Windows Subsystem for Linux
+    launcher. With no WSL distribution installed it exits 1 saying so, in UTF-16, which
+    is what `shlane plugin verify` was actually running. The shell is resolved to a full
+    path now, and that launcher is skipped.
   - A test hardcoded `/bin/sh` as the shell to switch to.
 - **The Windows build failed on an unused import.** `src/runtime/signals.rs` had only a
   `#[cfg(unix)]` test, so its module was empty there and `use super::*` became unused,
