@@ -1,6 +1,7 @@
 //! Command line surface.
 
 mod actions;
+mod cache_paths;
 mod init;
 mod list;
 mod migrate;
@@ -149,6 +150,10 @@ enum Commands {
         command: PluginCommands,
     },
 
+    /// Report the paths a CI should cache for this config
+    #[command(name = "cache-paths")]
+    CachePaths,
+
     /// Print a shell completion script
     Completions {
         #[arg(value_enum)]
@@ -256,6 +261,11 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             out,
             force,
         } => migrate::run(&base, fastfile.as_deref(), out.as_deref(), force),
+        Commands::CachePaths => {
+            let found = load(file.as_deref(), &base)?;
+            cache_paths::print(&found.config, json);
+            Ok(())
+        }
         Commands::Init { force } => init::write(&base, force),
         Commands::Completions { shell } => {
             clap_complete::generate(

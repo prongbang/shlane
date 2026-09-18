@@ -2930,3 +2930,63 @@ lanes:
         run.assert_stdout_contains("Not macOS");
     }
 }
+
+#[test]
+fn cache_paths_reports_only_what_the_config_uses() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  build:
+    steps:
+      - action: build_android
+        with: { format: apk }
+"#,
+    );
+
+    sandbox
+        .run(&["cache-paths"])
+        .assert_code(0)
+        .assert_stdout_contains("~/.gradle/caches");
+
+    // Nothing here touches Xcode, so suggesting its cache would be noise.
+    let run = sandbox.run(&["cache-paths"]);
+    assert!(
+        !run.stdout.contains("DerivedData"),
+        "should not suggest an Xcode cache for an Android-only config:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn cache_paths_emits_a_json_array() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  build:
+    steps:
+      - run: ./gradlew assemble
+"#,
+    );
+
+    sandbox
+        .run(&["cache-paths", "--json"])
+        .assert_code(0)
+        .assert_stdout_contains(r#"["~/.gradle/caches","~/.gradle/wrapper"]"#);
+}
+
+#[test]
+fn cache_paths_says_so_when_there_is_nothing_to_cache() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  hello:
+    steps:
+      - run: echo hi
+"#,
+    );
+
+    sandbox
+        .run(&["cache-paths"])
+        .assert_code(0)
+        .assert_stdout_contains("Nothing in this config downloads anything worth caching");
+}

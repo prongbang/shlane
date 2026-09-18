@@ -112,6 +112,7 @@ shlane run deploy target=staging
 | `shlane action list` / `show <name>` | The built-in actions and their arguments |
 | `shlane plugin install/list/lock/verify` | Fetch and inspect plugins |
 | `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
+| `shlane cache-paths` | The paths a CI should cache for this config |
 | `shlane completions <shell>` | A shell completion script |
 
 | Flag | What it does |
@@ -595,6 +596,16 @@ shlane recognises GitHub Actions, GitLab, Bitrise, CircleCI, Jenkins, Buildkite,
 TeamCity and Azure Pipelines. On GitHub a failure is also emitted as an `::error`
 annotation, so it appears on the pull request rather than only in the log. Lanes and
 scripts can branch on it with `if: is_ci()`.
+
+`shlane cache-paths` reports what this config is going to download, worked out from the
+actions and commands it actually contains — Gradle's caches for an Android project,
+Xcode's DerivedData for an iOS one, `.shlane/plugins` when plugins are declared. shlane
+does not manage the cache itself; `--json` is there to feed the step that does:
+
+```yaml
+- id: paths
+  run: echo "paths=$(shlane cache-paths --json)" >> $GITHUB_OUTPUT
+```
 
 Ctrl-C (or a `SIGTERM` from a CI shutting a job down) stops the running step, runs the
 `error` hooks and exits `130`. Every step runs in its own process group, so nothing it
