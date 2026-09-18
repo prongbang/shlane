@@ -76,6 +76,22 @@ pub fn clear_child() {
 mod tests {
     use super::*;
 
+    /// Runs everywhere: which child is being tracked is the same bookkeeping on
+    /// every platform, even where there is no signal to forward it to. Without
+    /// a test that compiles on Windows this module was empty there, and the
+    /// `use super::*` above became an unused import -- which `-D warnings`
+    /// turns into a build failure.
+    #[test]
+    fn a_registered_child_is_forgotten_once_it_is_cleared() {
+        register_child(4242, true);
+        assert_eq!(CURRENT_CHILD.load(Ordering::SeqCst), 4242);
+        assert!(CHILD_IS_GROUP.load(Ordering::SeqCst));
+
+        clear_child();
+        assert_eq!(CURRENT_CHILD.load(Ordering::SeqCst), 0);
+        assert!(!CHILD_IS_GROUP.load(Ordering::SeqCst));
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_handler_records_an_interrupt() {
