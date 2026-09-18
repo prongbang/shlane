@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows actually works now, rather than only compiling.** Adding the target and its
+  CI job in the same change meant the tests never ran there; once they did, three real
+  gaps showed up.
+  - **A plugin whose entry is a script could not start.** `Command::new(entry)` relies on
+    a shebang, which Windows does not have, so a `.sh` plugin failed with "%1 is not a
+    valid Win32 application". Anything that is not a native executable now goes through
+    the same POSIX shell steps already use.
+  - **`zip` and `unzip` have no binary on Windows.** They fall back to PowerShell's
+    `Compress-Archive` and `Expand-Archive`, which store and restore the directory the
+    same way `zip -r` does. `exclude` is refused rather than silently dropped in that
+    path: a file the lane asked to keep out could be a keystore, and an archive gets
+    uploaded.
+  - **Every step could have run through the WSL launcher.** `bash.exe` was looked up on
+    `PATH` but handed to Windows as a bare name, and Windows resolves that against the
+    system directory first — where `bash.exe` is the Windows Subsystem for Linux
+    launcher. With no WSL distribution installed it exits 1 saying so, in UTF-16, which
+    is what `shlane plugin verify` was actually running. The shell is resolved to a full
+    path now, and that launcher is skipped.
+  - A test hardcoded `/bin/sh` as the shell to switch to.
+- **The Windows build failed on an unused import.** `src/runtime/signals.rs` had only a
+  `#[cfg(unix)]` test, so its module was empty there and `use super::*` became unused,
+  which `-D warnings` makes fatal. It has a test that runs everywhere now. The original
+  cross-check missed it because it ran without `RUSTFLAGS`.
+
 ## [0.2.0] - 2026-09-18
 
 Everything below, from the foundations through M7. 0.1.0 was the 199-line prototype

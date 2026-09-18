@@ -802,9 +802,23 @@ number here is what a fresh resolve requires, not what this repository happens t
 substituted into a `run:` is escaped by POSIX rules, and handing that to `cmd.exe`, which
 quotes differently, would turn the escaping back into the injection it exists to prevent.
 shlane looks for `bash` or `sh` on `PATH` and then in Git for Windows' usual locations,
-and says so if it finds neither. `SHLANE_SHELL` points it somewhere else. Process groups
-and signal forwarding are POSIX-only, so on Windows a timed-out step is killed rather than
-asked to stop.
+and says so if it finds neither. `SHLANE_SHELL` points it somewhere else.
+
+It resolves that to a full path, and skips `bash.exe` in the Windows system directory.
+That one is the launcher for the Windows Subsystem for Linux, not a POSIX shell, and on
+a machine with no WSL distribution installed it exits with "has no installed
+distributions" — which is what every step would have run through, because Windows
+resolves a bare program name against the system directory before `PATH`.
+
+Two other things differ there. A plugin whose entry is a script goes through that same
+shell, because Windows has no shebang handling and would otherwise refuse to start a
+`.sh`. And `zip`/`unzip` fall back to PowerShell's `Compress-Archive`/`Expand-Archive`
+when those binaries are absent — with one deliberate exception: `exclude` is refused
+rather than ignored, because a file a lane asked to keep out of an archive could be a
+keystore, and archives get uploaded.
+
+Process groups and signal forwarding are POSIX-only, so on Windows a timed-out step is
+killed rather than asked to stop first.
 
 The schema is documented in [`docs/schema-v1.md`](docs/schema-v1.md), which also states
 what will and will not change while shlane is on 1.x. `tests/schema_v1.rs` runs a config

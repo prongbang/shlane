@@ -7,8 +7,52 @@ use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::{Result, ShlaneError};
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+/// How to start a plugin's entry point.
+///
+/// On unix the file is executed directly and its shebang decides what runs it.
+/// Windows has no shebang handling, so a `notify.sh` fails with "%1 is not a
+/// valid Win32 application" -- which is what a real plugin written as a script
+/// would hit, not only the tests. Steps already run in the POSIX shell that
+/// comes with Git for Windows, so anything that is not a native executable goes
+/// through that same shell.
+pub(crate) fn spawner(executable: &Path, env: &BTreeMap<String, String>) -> Result<Command> {
+    if native_executable(executable) {
+        return Ok(Command::new(executable));
+    }
+
+    let shell = crate::runtime::shell::shell(env)?;
+    let mut command = Command::new(shell);
+    command.arg("-c").arg(shell_invocation(executable));
+    Ok(command)
+}
+
+/// Whether the OS can execute this file on its own.
+fn native_executable(executable: &Path) -> bool {
+    if !cfg!(windows) {
+        // A shebang covers every script here.
+        return true;
+    }
+    let extension = executable
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+    matches!(
+        extension.as_deref(),
+        Some("exe" | "com" | "bat" | "cmd") | None
+    )
+}
+
+/// The command line handed to the POSIX shell.
+///
+/// Backslashes become forward slashes: the shell that ships with Git for
+/// Windows takes `C:/path/to/notify.sh`, while inside quotes a backslash is an
+/// escape character rather than a separator.
+fn shell_invocation(executable: &Path) -> String {
+    let path = executable.display().to_string().replace('\\', "/");
+    format!("'{}'", path.replace('\'', "'\\''"))
+}
 
 /// Turn what a manifest declares into the schema every action exposes.
 pub fn schema_from(declared: &ManifestAction) -> Vec<ArgSpec> {
@@ -88,7 +132,7 @@ impl Action for PluginAction {
         ctx.ui
             .detail(&format!("plugin {} <- {request}", self.plugin));
 
-        let mut child = Command::new(&self.executable)
+        let mut child = spawner(&self.executable, ctx.env)?
             .current_dir(ctx.workdir())
             .envs(ctx.env)
             .stdin(Stdio::piped())
@@ -175,5 +219,45 @@ impl Action for PluginAction {
             action_output = action_output.with(&key, value);
         }
         Ok(action_output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_script_needs_a_shell_only_where_the_os_cannot_run_it() {
+        // On unix a shebang covers every script, so nothing is wrapped.
+        assert_eq!(
+            native_executable(Path::new("plugins/demo/notify.sh")),
+            !cfg!(windows)
+        );
+    }
+
+    #[test]
+    fn a_windows_executable_is_started_directly() {
+        for name in ["notify.exe", "notify.BAT", "notify.cmd", "notify"] {
+            assert!(
+                native_executable(Path::new(name)),
+                "{name} should not need a shell"
+            );
+        }
+    }
+
+    #[test]
+    fn a_windows_path_reaches_the_shell_in_a_form_it_accepts() {
+        let invocation = shell_invocation(Path::new(r"C:\Users\runner\plugins\notify.sh"));
+        assert_eq!(invocation, "'C:/Users/runner/plugins/notify.sh'");
+        assert!(
+            !invocation.contains('\\'),
+            "a backslash would be read as an escape: {invocation}"
+        );
+    }
+
+    #[test]
+    fn a_quote_in_the_path_cannot_end_the_quoting() {
+        let invocation = shell_invocation(Path::new("/tmp/it's here/notify.sh"));
+        assert_eq!(invocation, r"'/tmp/it'\''s here/notify.sh'");
     }
 }

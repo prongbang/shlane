@@ -4,7 +4,7 @@ use crate::config::loader::Discovered;
 use crate::error::{Result, ShlaneError};
 use crate::plugin::{self, protocol, Loaded};
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 pub fn list(found: &Discovered) -> Result<()> {
     let plugins = plugin::load_all(&found.config, &found.root)?;
@@ -253,7 +253,12 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         false,
     );
 
-    let mut child = Command::new(&plugin.entry)
+    // The same spawn rule a plugin's action uses: on Windows a script cannot be
+    // executed directly, so it goes through the POSIX shell. `verify` starting
+    // a plugin differently from the way a lane starts it would check something
+    // other than what runs.
+    let mut child = plugin::action::spawner(&plugin.entry, &std::collections::BTreeMap::new())
+        .map_err(|err| err.to_string())?
         .current_dir(&plugin.directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -270,7 +275,7 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         .wait_with_output()
         .map_err(|err| format!("{action}: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let (events, _) = protocol::parse_events(&stdout);
+    let (events, ignored) = protocol::parse_events(&stdout);
 
     events
         .into_iter()
@@ -278,7 +283,37 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
             protocol::Event::Describe { description, args } => Some((description, args)),
             _ => None,
         })
-        .ok_or_else(|| format!("'{action}' did not answer `describe`"))
+        .ok_or_else(|| {
+            // Whatever the plugin said about itself, rather than only that it
+            // said nothing we understood. Running a plugin relays its stderr
+            // (`plugin::action`); verify dropped it, which left a plugin that
+            // died on startup reporting nothing but "did not answer".
+            let mut message = format!("'{action}' did not answer `describe`");
+            if !output.status.success() {
+                message.push_str(&format!(
+                    " (exit code {})",
+                    output.status.code().unwrap_or(-1)
+                ));
+            }
+            // Everything the plugin actually said: its stderr, and any stdout
+            // that was not a protocol event. Running a plugin shows both
+            // (`plugin::action`); verify showed neither, so a plugin printing
+            // malformed JSON, or nothing at all, looked identical.
+            let said = String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .map(str::to_string)
+                .chain(ignored)
+                .filter(|line| !line.trim().is_empty())
+                .collect::<Vec<_>>();
+
+            if said.is_empty() {
+                message.push_str(" and printed nothing");
+            }
+            for line in said {
+                message.push_str(&format!("\n      {line}"));
+            }
+            message
+        })
 }
 
 /// Fetch a plugin, declare it in the config, and record its checksum.

@@ -3516,9 +3516,11 @@ lanes:
     );
 
     // The override is what makes shlane work on a machine whose POSIX shell is
-    // somewhere other than /bin/sh -- Windows, where it comes with Git.
+    // somewhere other than /bin/sh -- Windows, where it comes with Git and is
+    // found on PATH rather than at an absolute path.
+    let shell = if cfg!(windows) { "bash" } else { "/bin/sh" };
     sandbox
-        .run_with_env(&["run", "hello"], &[("SHLANE_SHELL", "/bin/sh")])
+        .run_with_env(&["run", "hello"], &[("SHLANE_SHELL", shell)])
         .assert_code(0)
         .assert_stdout_contains("which-shell");
 
@@ -3587,4 +3589,63 @@ lanes:
         sandbox.path().join("a dir with spaces/one.txt").is_file(),
         "the directory should be named without quotes"
     );
+}
+
+#[test]
+fn plugin_verify_reports_what_a_plugin_said_before_it_died() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    // A plugin that fails on startup, the way a missing interpreter or an
+    // unreadable credential would.
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh\necho 'cannot reach the API: no token' >&2\nexit 7\n",
+    );
+
+    // "did not answer describe" on its own says nothing about why. Running a
+    // plugin relays its stderr; verify has to as well.
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("did not answer `describe` (exit code 7)")
+        .assert_stderr_contains("cannot reach the API: no token");
+}
+
+#[test]
+fn plugin_verify_reports_stdout_that_was_not_a_protocol_event() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    // A plugin that answers, but not in the protocol -- a stray print, a stack
+    // trace, a JSON library writing something else.
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh
+echo 'this is not json'
+exit 1
+",
+    );
+
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("this is not json");
+}
+
+#[test]
+fn plugin_verify_says_so_when_a_plugin_prints_nothing_at_all() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh
+exit 1
+",
+    );
+
+    // Silence is itself the finding, and worth saying out loud rather than
+    // leaving the reader to wonder what was trimmed.
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("and printed nothing");
 }
