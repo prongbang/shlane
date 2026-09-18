@@ -335,6 +335,7 @@ which must be installed.
 | `build_ios` | Archive and export an `.ipa` |
 | `test_ios` | Run tests in a simulator, optionally writing JUnit |
 | `keychain` | Create, unlock or delete a keychain |
+| `setup_ci` | Prepare a CI machine for signing, and clean up afterwards |
 | `testflight` | Upload a build to TestFlight |
 | `asc_request` | Any App Store Connect API call, authenticated |
 
@@ -579,6 +580,16 @@ block is flattened: those steps now run unconditionally.
 The action installs shlane — a 2.6 MB download, against the 48 seconds a cold
 `bundle install` of fastlane took when [measured](benchmarks/README.md) — and runs the
 lane.
+
+`setup_ci` creates a temporary keychain for the job and registers its deletion, which
+runs when the lane ends whether it passed or failed — a build machine that keeps the
+keychain the last job created is a build machine that stops being able to sign. Off CI
+it says so and does nothing, rather than taking over a developer's default keychain.
+
+```yaml
+steps:
+  - action: setup_ci        # keychain_password: generated, and masked
+```
 
 shlane recognises GitHub Actions, GitLab, Bitrise, CircleCI, Jenkins, Buildkite, Travis,
 TeamCity and Azure Pipelines. On GitHub a failure is also emitted as an `::error`

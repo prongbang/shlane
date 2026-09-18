@@ -1,6 +1,6 @@
 //! Lane execution.
 
-use super::context::{Frame, Outputs, SharedFrame, SharedOutputs};
+use super::context::{Frame, Outputs, SharedCleanups, SharedFrame, SharedOutputs};
 use super::interpolate::{interpolate, interpolate_plain, Vars};
 use super::secrets::{Secrets, SharedSecrets};
 use super::shell::{self, Spawn};
@@ -62,6 +62,7 @@ pub struct Runner<'a> {
     options: Options,
     frame: SharedFrame,
     outputs: SharedOutputs,
+    cleanups: SharedCleanups,
     secrets: SharedSecrets,
     ui: Rc<Ui>,
     engine: rhai::Engine,
@@ -188,12 +189,14 @@ impl<'a> Runner<'a> {
             dry_run: options.dry_run,
         }));
         let outputs: SharedOutputs = Rc::new(RefCell::new(Outputs::default()));
+        let cleanups: SharedCleanups = Rc::new(RefCell::new(Vec::new()));
 
         let engine = script::engine::build(&Runtime {
             frame: frame.clone(),
             outputs: outputs.clone(),
             secrets: secrets.clone(),
             ui: ui.clone(),
+            cleanups: cleanups.clone(),
             registry: Some(registry.clone()),
         });
 
@@ -204,6 +207,7 @@ impl<'a> Runner<'a> {
             options,
             frame,
             outputs,
+            cleanups,
             secrets,
             ui,
             engine,
@@ -257,8 +261,54 @@ impl<'a> Runner<'a> {
             }
         }
 
+        self.run_cleanups();
+
         *self.frame.borrow_mut() = previous;
         result
+    }
+
+    /// Undo what actions asked to have undone, most recent first.
+    ///
+    /// A cleanup that fails is reported and the next one still runs: leaving a
+    /// keychain behind because an unrelated cleanup failed is how a CI machine
+    /// ends up with forty of them.
+    fn run_cleanups(&mut self) {
+        let pending: Vec<_> = self.cleanups.borrow_mut().drain(..).rev().collect();
+        if pending.is_empty() {
+            return;
+        }
+
+        self.ui.say("\nCleaning up...");
+        let env = self.frame.borrow().env.clone();
+        let workdir = self.frame.borrow().workdir.clone();
+        let secrets = self.secrets.borrow().clone();
+
+        for cleanup in pending {
+            self.ui.detail(&cleanup.what);
+            if self.options.dry_run {
+                self.ui.say(&format!("Would run: {}", cleanup.command));
+                continue;
+            }
+            let outcome = crate::runtime::shell::run(crate::runtime::shell::Spawn {
+                command: &cleanup.command,
+                env: &env,
+                workdir: &workdir,
+                timeout: None,
+                quiet: true,
+                secrets: &secrets,
+            });
+            match outcome {
+                Ok(outcome) if !outcome.success => self.ui.warn(&format!(
+                    "could not clean up {}: exit code {}",
+                    cleanup.what,
+                    outcome.code.unwrap_or(-1)
+                )),
+                Err(err) => self
+                    .ui
+                    .warn(&format!("could not clean up {}: {err}", cleanup.what)),
+                Ok(_) => {}
+            }
+        }
     }
 
     fn run_lane_inner(&mut self, lane_name: &str, params: BTreeMap<String, String>) -> Result<()> {
@@ -501,6 +551,7 @@ impl<'a> Runner<'a> {
             secrets: self.secrets.clone(),
             frame: self.frame.clone(),
             outputs: self.outputs.clone(),
+            cleanups: self.cleanups.clone(),
         };
 
         let output = action.run(&mut ctx, &args)?;

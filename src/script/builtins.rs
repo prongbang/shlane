@@ -4,7 +4,7 @@
 //! so a nested `lane:` call sees its own parameters rather than the ones the
 //! outermost lane was started with.
 
-use crate::runtime::context::{SharedFrame, SharedOutputs};
+use crate::runtime::context::{SharedCleanups, SharedFrame, SharedOutputs};
 use crate::runtime::secrets::SharedSecrets;
 use crate::runtime::shell::{self, Spawn};
 use crate::runtime::ui::Ui;
@@ -18,6 +18,7 @@ pub struct Runtime {
     pub outputs: SharedOutputs,
     pub secrets: SharedSecrets,
     pub ui: Rc<Ui>,
+    pub cleanups: SharedCleanups,
     /// `None` inside a Rhai plugin: the registry holds the plugin, so handing
     /// the plugin the registry back would be a cycle. Such a script gets every
     /// other builtin.
@@ -266,6 +267,7 @@ fn run_action(runtime: &Runtime, name: &str, args: rhai::Map) -> Fallible<rhai::
         secrets: runtime.secrets.clone(),
         frame: runtime.frame.clone(),
         outputs: runtime.outputs.clone(),
+        cleanups: runtime.cleanups.clone(),
     };
 
     let output = action

@@ -1,7 +1,7 @@
 //! What an action is given to work with.
 
 use crate::error::{Result, ShlaneError};
-use crate::runtime::context::{SharedFrame, SharedOutputs};
+use crate::runtime::context::{Cleanup, SharedCleanups, SharedFrame, SharedOutputs};
 use crate::runtime::secrets::SharedSecrets;
 use crate::runtime::shell::{self, Spawn};
 use crate::runtime::ui::Ui;
@@ -20,11 +20,26 @@ pub struct ActionContext<'a> {
     /// builtins a lane's own script has.
     pub frame: SharedFrame,
     pub outputs: SharedOutputs,
+    /// Commands to run once the run is over, whatever its result.
+    pub cleanups: SharedCleanups,
 }
 
 impl ActionContext<'_> {
     pub fn workdir(&self) -> &Path {
         &self.workdir
+    }
+
+    /// Ask for a command to be run once the run is over, whether it passed or
+    /// failed.
+    ///
+    /// Registered rather than run in a `Drop`: a cleanup is a real command that
+    /// can fail and has something to say about it, and the lane's error hooks
+    /// have to see the machine as the failure left it.
+    pub fn on_finish(&self, what: impl Into<String>, command: impl Into<String>) {
+        self.cleanups.borrow_mut().push(Cleanup {
+            what: what.into(),
+            command: command.into(),
+        });
     }
 
     /// Hide a value wherever it appears in the output.

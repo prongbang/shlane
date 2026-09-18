@@ -40,6 +40,7 @@ pub fn engine_for(ctx: &ActionContext<'_>) -> rhai::Engine {
         outputs: ctx.outputs.clone(),
         secrets: ctx.secrets.clone(),
         ui: ctx.ui.clone(),
+        cleanups: ctx.cleanups.clone(),
         registry: None,
     })
 }

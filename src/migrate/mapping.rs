@@ -13,6 +13,12 @@ pub struct Mapping {
 
 const MAPPINGS: &[Mapping] = &[
     Mapping {
+        fastlane: "setup_ci",
+        shlane: "setup_ci",
+        renames: &[("keychain_name", "keychain_name"), ("timeout", "timeout")],
+        add: &[],
+    },
+    Mapping {
         fastlane: "gym",
         shlane: "build_ios",
         renames: &[("export_method", "export_method"), ("team_id", "team_id")],
@@ -194,7 +200,6 @@ pub fn unsupported(name: &str) -> Option<&'static str> {
             Some("signing is handled by Xcode via -allowProvisioningUpdates; there is no direct equivalent")
         }
         "deliver" | "upload_to_app_store" => Some("uploading metadata to the App Store is not implemented yet"),
-        "setup_ci" => Some("use the `keychain` action to create a temporary keychain"),
         "snapshot" | "screengrab" | "frameit" | "precheck" | "produce" | "pem" => {
             Some("no equivalent; keep using a `run:` step for this")
         }

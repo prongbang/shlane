@@ -143,3 +143,18 @@ mod tests {
         assert_eq!(flat.get("build.code").map(String::as_str), Some("0"));
     }
 }
+
+/// Something an action asked to have undone once the run is over.
+///
+/// `setup_ci` creates a keychain that must not outlive the job, and a step that
+/// fails is exactly when it matters, so cleanups run whether the lane passed or
+/// failed -- after the error hooks, which may still need what is being cleaned
+/// up.
+#[derive(Debug, Clone)]
+pub struct Cleanup {
+    /// Shown in the log, so an unexpected cleanup can be traced back.
+    pub what: String,
+    pub command: String,
+}
+
+pub type SharedCleanups = Rc<RefCell<Vec<Cleanup>>>;

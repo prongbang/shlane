@@ -52,6 +52,20 @@ impl Sandbox {
         Run::new(output)
     }
 
+    /// Run with extra environment variables, for the actions that behave
+    /// differently on CI.
+    fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_shlane"));
+        command
+            .args(args)
+            .current_dir(&self.path)
+            .env_remove("SHLANE_CONFIG");
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        Run::new(command.output().expect("shlane binary should be runnable"))
+    }
+
     fn write(&self, relative: &str, contents: &str) {
         let path = self.path.join(relative);
         if let Some(parent) = path.parent() {
@@ -2867,4 +2881,52 @@ lanes:
         !sandbox.path().join("should-not-exist").exists(),
         "--dry-run must still skip commands that change something"
     );
+}
+
+#[test]
+fn setup_ci_does_nothing_off_ci() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  prepare:
+    steps:
+      - id: setup
+        action: setup_ci
+      - run: echo ci=${steps.setup.ci}
+"#,
+    );
+
+    // CI, and the provider variables, removed: this has to look like a
+    // developer's machine, where taking over the default keychain would lock
+    // them out of their own certificates.
+    sandbox
+        .run_with_env(&["run", "prepare"], &[("CI", ""), ("GITHUB_ACTIONS", "")])
+        .assert_code(0)
+        .assert_stdout_contains("Not running on CI")
+        .assert_stdout_contains("ci=false");
+}
+
+#[test]
+fn setup_ci_reports_the_provider_it_found() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  prepare:
+    steps:
+      - action: setup_ci
+"#,
+    );
+
+    let run = sandbox.run_with_env(
+        &["run", "prepare"],
+        &[("CI", "true"), ("GITHUB_ACTIONS", "true")],
+    );
+    run.assert_code(0)
+        .assert_stdout_contains("CI detected: github");
+
+    // The keychain half is macOS-only; everywhere else it says so rather than
+    // failing on a missing `security`.
+    if !cfg!(target_os = "macos") {
+        run.assert_stdout_contains("Not macOS");
+    }
 }

@@ -98,7 +98,7 @@ all.
 **Done when:** a real iOS project can reach TestFlight from CI.
 
 > Done: `build_ios`, including generating ExportOptions.plist, `test_ios`, `keychain`,
-> `testflight` through altool, and `asc_request` (ES256 JWT with ring).
+> `setup_ci`, `testflight` through altool, and `asc_request` (ES256 JWT with ring).
 >
 > - ~~`codesign_sync` / match~~ ✅ done in M6, read-only — it can read an existing match
 >   repo
