@@ -43,23 +43,18 @@ impl Sandbox {
 
     /// Run with the working directory set to `subdir` inside the sandbox.
     fn run_in(&self, subdir: &str, args: &[&str]) -> Run {
-        let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
-            .args(args)
-            .current_dir(self.path.join(subdir))
-            .env_remove("SHLANE_CONFIG")
-            .output()
-            .expect("shlane binary should be runnable");
-        Run::new(output)
+        let mut command = Command::new(env!("CARGO_BIN_EXE_shlane"));
+        command.args(args).current_dir(self.path.join(subdir));
+        clear_ambient(&mut command);
+        Run::new(command.output().expect("shlane binary should be runnable"))
     }
 
     /// Run with extra environment variables, for the actions that behave
     /// differently on CI.
     fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         let mut command = Command::new(env!("CARGO_BIN_EXE_shlane"));
-        command
-            .args(args)
-            .current_dir(&self.path)
-            .env_remove("SHLANE_CONFIG");
+        command.args(args).current_dir(&self.path);
+        clear_ambient(&mut command);
         for (key, value) in env {
             command.env(key, value);
         }
@@ -82,6 +77,35 @@ impl Sandbox {
 impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Every variable shlane looks at to decide it is on CI, from
+/// `src/runtime/ci.rs`.
+const CI_SIGNATURES: &[&str] = &[
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "BITRISE_IO",
+    "CIRCLECI",
+    "JENKINS_URL",
+    "BUILDKITE",
+    "TRAVIS",
+    "TEAMCITY_VERSION",
+    "TF_BUILD",
+];
+
+/// Take the environment the test runner happens to be in out of the picture.
+///
+/// These tests run on CI, so without this the runner's own `GITHUB_ACTIONS`
+/// reaches the shlane under test: a test asserting that nothing is annotated
+/// off CI fails, and one that sets `BUILDKITE` gets `github` back because the
+/// real variable wins. What the sandbox sees has to come from the test alone.
+fn clear_ambient(command: &mut Command) {
+    command.env_remove("SHLANE_CONFIG");
+    command.env_remove("SHLANE_SHELL");
+    for name in CI_SIGNATURES {
+        command.env_remove(name);
     }
 }
 
@@ -2663,14 +2687,9 @@ lanes:
 "#,
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
-        .args(["run", "a"])
-        .current_dir(sandbox.path())
-        .env_remove("SHLANE_CONFIG")
-        .env("BUILDKITE", "true")
-        .output()
-        .expect("shlane should run");
-    let run = Run::new(output);
+    // Through the sandbox helper, so the runner's own CI variables are cleared
+    // first: a real GITHUB_ACTIONS would win over the BUILDKITE set here.
+    let run = sandbox.run_with_env(&["run", "a"], &[("BUILDKITE", "true")]);
 
     run.assert_code(0)
         .assert_stdout_contains("on-ci")

@@ -2,8 +2,11 @@
 name = "shlane"
 version = "0.2.0"
 edition = "2021"
-# Raised from 1.74 by ureq, which needs 1.85.
-rust-version = "1.85"
+# Raised from 1.74 by ureq (1.85), then by aes 0.9.3 (1.89). `cargo install`
+# resolves fresh rather than from the lockfile, so the number here has to be
+# what a fresh resolve needs, not what this repository's lockfile happens to
+# pin.
+rust-version = "1.89"
 description = "A fastlane-like automation tool written in Rust with Rhai scripting support"
 authors = ["prongbang"]
 license = "Apache-2.0"

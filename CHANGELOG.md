@@ -62,6 +62,12 @@ anyone can install.
   itself printed sixteen nested "step script failed: lane: ..." wrappers with the real
   reason at the end; it now reports the reason.
 
+### Changed
+
+- **MSRV is 1.89**, up from 1.85: `aes` 0.9.3 requires it. `cargo install` resolves
+  dependencies fresh rather than from the committed lockfile, so the declared version
+  has to be what a fresh resolve needs.
+
 ### Notes
 
 - The iOS actions, `play_store` and `appstore` have not been run against the real
