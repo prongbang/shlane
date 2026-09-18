@@ -602,25 +602,68 @@ point at GitHub's step summary.
 
 ## Benchmark
 
-Both tools were given the same three lanes and timed on the same machine — the harness
-and the full numbers are in [`benchmarks/`](benchmarks/README.md). Medians of 10 runs,
-fastlane 2.240.1 on Ruby 3.3.6:
+Both tools were given the same three lanes — [`benchmarks/fastlane/Fastfile`](benchmarks/fastlane/Fastfile)
+and [`benchmarks/shlane.yaml`](benchmarks/shlane.yaml) define them step for step — and
+timed on the same machine. Medians of 10 runs, with one warm-up discarded.
 
-| | fastlane | shlane |
+### Running a lane
+
+| Scenario | fastlane | shlane | Faster by |
+|---|---|---|---|
+| Start up, and nothing else (`--version`) | 1.270 s | 0.0020 s | 634× |
+| Read the lane definitions and list them | 1.274 s | 0.0022 s | 582× |
+| A lane with one step that does nothing | 1.278 s | 0.0044 s | 294× |
+| A lane with 20 shell steps | 1.477 s | 0.0392 s | 38× |
+| A parameter, an env var, and a value passed between steps | 1.294 s | 0.0085 s | 153× |
+
+Through `bundle exec`, as most CI configurations run it, fastlane costs about another
+0.15 s — the one-step lane takes 1.440 s.
+
+### Where the time goes
+
+| | Fixed, per invocation | Per step | Peak RSS |
+|---|---|---|---|
+| fastlane | ~1.28 s | ~10 ms | 78 MB |
+| shlane | ~0.004 s | ~1.8 ms | 12 MB |
+
+Nearly all of fastlane's cost is the Ruby VM starting and its gems loading, so the ratio
+is largest on short lanes and narrows as steps are added. The fixed second is paid by
+every job, every time.
+
+### Setting it up on a fresh runner
+
+| | Time | On disk |
 |---|---|---|
-| Start up and list the lanes | 1.274 s | 0.002 s |
-| A lane with one no-op step | 1.278 s | 0.004 s |
-| A lane with 20 shell steps | 1.477 s | 0.039 s |
-| Peak memory | 78 MB | 12 MB |
-| Cold `bundle install` vs unpacking the binary | 48.8 s | 0.06 s |
+| `bundle install` (cold, no cache) | 48.8 s | 112 MB, 81 gems |
+| `gem install fastlane` (cold) | 37.1 s | 79 MB |
+| shlane: checksum and unpack the tarball | 0.064 s | 6.0 MB binary, 2.6 MB tarball |
 
-Nearly all of fastlane's cost is fixed — about 1.28 s of Ruby start-up per invocation,
-then ~10 ms per step, against shlane's ~4 ms and ~1.8 ms. It is the fixed second that a
-CI job pays every time.
+The shlane figure leaves out the download, which depends on the runner's bandwidth —
+2.6 MB is well under a second on any CI network.
 
-None of this touches Xcode or Gradle. On a real release the build dominates and takes
-the same minutes either way; what is measured here is only the overhead each tool adds
-on top of it.
+### Conditions
+
+Ubuntu 24.04, Xeon @ 2.80 GHz, 4 cores, 15 GB. fastlane 2.240.1 on Ruby 3.3.6;
+shlane 0.1.0 built with rustc 1.94.1 in release mode.
+
+Everything that would slow fastlane down for reasons unrelated to the comparison is
+turned off — `FASTLANE_SKIP_UPDATE_CHECK`, `FASTLANE_OPT_OUT_USAGE`,
+`FASTLANE_DISABLE_COLORS`, `FASTLANE_SKIP_ACTION_SUMMARY`, and `skip_docs` in the
+Fastfile. All of those favour fastlane. Repeating the whole set put fastlane 5–7% slower
+and shlane unchanged, so these ratios are good to about one significant figure.
+
+**None of this touches Xcode or Gradle.** On a real release the build dominates and
+takes the same minutes either way; what is measured here is only the overhead each tool
+adds on top of it. And fastlane has ~400 actions against shlane's 25 — speed is not the
+deciding factor if the action you need exists on only one side.
+
+To reproduce, see [`benchmarks/README.md`](benchmarks/README.md):
+
+```sh
+cargo build --release
+gem install fastlane --no-document
+cd benchmarks && ./run.py --runs 10
+```
 
 ## Exit codes
 
