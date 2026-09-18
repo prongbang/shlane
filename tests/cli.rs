@@ -3610,3 +3610,42 @@ fn plugin_verify_reports_what_a_plugin_said_before_it_died() {
         .assert_stderr_contains("did not answer `describe` (exit code 7)")
         .assert_stderr_contains("cannot reach the API: no token");
 }
+
+#[test]
+fn plugin_verify_reports_stdout_that_was_not_a_protocol_event() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    // A plugin that answers, but not in the protocol -- a stray print, a stack
+    // trace, a JSON library writing something else.
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh
+echo 'this is not json'
+exit 1
+",
+    );
+
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("this is not json");
+}
+
+#[test]
+fn plugin_verify_says_so_when_a_plugin_prints_nothing_at_all() {
+    let sandbox = Sandbox::new(PLUGIN_CONFIG);
+    write_plugin(&sandbox, "tools/line-notify", None);
+    sandbox.write(
+        "tools/line-notify/notify.sh",
+        "#!/bin/sh
+exit 1
+",
+    );
+
+    // Silence is itself the finding, and worth saying out loud rather than
+    // leaving the reader to wonder what was trimmed.
+    sandbox
+        .run(&["plugin", "verify"])
+        .assert_code(2)
+        .assert_stderr_contains("and printed nothing");
+}

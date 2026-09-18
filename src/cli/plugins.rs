@@ -275,7 +275,7 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         .wait_with_output()
         .map_err(|err| format!("{action}: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let (events, _) = protocol::parse_events(&stdout);
+    let (events, ignored) = protocol::parse_events(&stdout);
 
     events
         .into_iter()
@@ -295,10 +295,21 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
                     output.status.code().unwrap_or(-1)
                 ));
             }
-            for line in String::from_utf8_lossy(&output.stderr)
+            // Everything the plugin actually said: its stderr, and any stdout
+            // that was not a protocol event. Running a plugin shows both
+            // (`plugin::action`); verify showed neither, so a plugin printing
+            // malformed JSON, or nothing at all, looked identical.
+            let said = String::from_utf8_lossy(&output.stderr)
                 .lines()
+                .map(str::to_string)
+                .chain(ignored.into_iter())
                 .filter(|line| !line.trim().is_empty())
-            {
+                .collect::<Vec<_>>();
+
+            if said.is_empty() {
+                message.push_str(" and printed nothing");
+            }
+            for line in said {
                 message.push_str(&format!("\n      {line}"));
             }
             message
