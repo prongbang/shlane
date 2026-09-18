@@ -1,0 +1,45 @@
+# The shlane half of the benchmark. Every lane here has a line-for-line
+# equivalent in fastlane/Fastfile, so the two are doing the same work.
+
+version: 1
+
+lanes:
+  noop:
+    description: "One step that does nothing, to measure start-up"
+    steps:
+      - run: "true"
+
+  many:
+    description: "20 shell steps in a row, to measure per-step overhead"
+    steps:
+      - run: echo step 1
+      - run: echo step 2
+      - run: echo step 3
+      - run: echo step 4
+      - run: echo step 5
+      - run: echo step 6
+      - run: echo step 7
+      - run: echo step 8
+      - run: echo step 9
+      - run: echo step 10
+      - run: echo step 11
+      - run: echo step 12
+      - run: echo step 13
+      - run: echo step 14
+      - run: echo step 15
+      - run: echo step 16
+      - run: echo step 17
+      - run: echo step 18
+      - run: echo step 19
+      - run: echo step 20
+
+  interpolate:
+    description: "A parameter, an environment variable and a value passed between steps"
+    params:
+      target:
+        type: string
+        required: true
+    steps:
+      - id: sha
+        run: git rev-parse --short HEAD
+      - run: echo ${params.target} ${steps.sha.stdout} ${env.BENCH_ENV}

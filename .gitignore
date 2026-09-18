@@ -1,1 +1,9 @@
 /target
+
+# local secrets
+.env
+.env.*
+!.env.example
+
+# shlane working directory
+.shlane/

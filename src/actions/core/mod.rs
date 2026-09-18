@@ -1,0 +1,57 @@
+//! Actions that are not tied to a platform (`docs/plan/06-actions-core.md`).
+
+pub mod android;
+pub mod appstore;
+pub mod ci;
+pub mod files;
+pub mod firebase;
+pub mod git;
+pub mod http;
+pub mod ios;
+pub mod play;
+pub mod shell;
+pub mod version;
+
+use super::Action;
+
+pub fn all() -> Vec<Box<dyn Action>> {
+    vec![
+        Box::new(shell::Sh),
+        Box::new(shell::EnsureEnvVars),
+        Box::new(shell::WhichTool),
+        Box::new(git::GitStatusClean),
+        Box::new(git::GitBranch),
+        Box::new(git::GitCommit),
+        Box::new(git::GitTag),
+        Box::new(git::GitPush),
+        Box::new(git::GitPull),
+        Box::new(git::LastGitTag),
+        Box::new(git::ChangelogFromCommits),
+        Box::new(version::ReadVersion),
+        Box::new(version::BumpVersion),
+        Box::new(android::Gradle),
+        Box::new(android::BuildAndroid),
+        Box::new(android::TestAndroid),
+        Box::new(android::SignAndroid),
+        Box::new(crate::actions::codesign::sync::CodesignSync),
+        Box::new(crate::actions::codesign::fetch::ProvisioningProfile),
+        Box::new(crate::actions::codesign::fetch::Certificate),
+        Box::new(crate::actions::codesign::fetch::XcodeSettings),
+        Box::new(ios::BuildIos),
+        Box::new(ios::TestIos),
+        Box::new(ios::Keychain),
+        Box::new(ios::TestFlight),
+        Box::new(ios::AscRequest),
+        Box::new(appstore::AppStore),
+        Box::new(ci::SetupCi),
+        Box::new(play::PlayStore),
+        Box::new(firebase::FirebaseDistribution),
+        Box::new(http::HttpRequest),
+        Box::new(files::Zip),
+        Box::new(files::Unzip),
+        Box::new(files::CopyArtifacts),
+        Box::new(files::Download),
+        Box::new(files::TemplateRender),
+        Box::new(http::NotifySlack),
+    ]
+}

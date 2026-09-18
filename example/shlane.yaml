@@ -1,43 +1,117 @@
-# fasttool.yaml
+# shlane.yaml — example configuration
+#
+#   shlane list
+#   shlane validate
+#   shlane run deploy target=production
+version: 1
 
-# Global environment variables (available in all lanes and scripts)
+# Environment variables handed to every command in every lane.
+# Keep secrets out of this file: put them in .env (git-ignored) instead.
+# Anything named *_TOKEN, *_SECRET, *_PASSWORD, *_KEY or *_CREDENTIALS is
+# masked in everything shlane prints.
 env:
   APP_ENV: "production"
-  API_KEY: "abc123"
+env_files:
+  - .env
+  - .env.${SHLANE_PROFILE}
 
-# Optional shared Rhai script file to define reusable functions
+# Rhai functions shared by every lane.
 script: |-
   fn greet(name) {
       print("Hello from shared function, " + name + "!");
   }
 
-# Define multiple lanes
+# Runs before every lane, and after one succeeds.
+before_all:
+  - echo "shlane ${shlane.version} starting lane ${shlane.lane}"
+after_all:
+  - echo "all done"
+
+# Runs when a lane fails.
+error:
+  - echo "something went wrong"
+
 lanes:
   build:
+    description: "Build a release binary"
     before:
       - echo "Setting up build environment"
-    script: |
-      greet("Tester");
     steps:
       - run: "cargo build --release"
+        name: compile
+        timeout: 10m
+    script: |
+      greet("Tester");
     after:
       - echo "Build completed"
 
   test:
+    description: "Run the test suite"
     steps:
       - run: "cargo test"
+        name: unit tests
+
+  release:
+    description: "Bump the version, commit and tag — no shell needed"
+    params:
+      part:
+        type: string
+        default: patch
+        values: [major, minor, patch]
+    steps:
+      - action: git_status_clean
+      - id: notes
+        action: changelog_from_commits
+      - id: bumped
+        action: bump_version
+        with:
+          part: ${part}
+      - action: git_commit
+        with:
+          message: "release: v${steps.bumped.version}"
+      - action: git_tag
+        with:
+          name: "v${steps.bumped.version}"
+          message: ${steps.notes.text}
 
   deploy:
-    before:
-      - echo "Deploying to server"
+    description: "Deploy to a target environment"
+    env:
+      DEPLOY_STARTED_BY: shlane
+    params:
+      target:
+        type: string
+        required: true
+        values: [staging, production]
+        description: "Where to deploy"
+      notes:
+        type: string
+        default: "no notes"
     steps:
-      - run: "echo Deploying ${target}"
-    script: |
-      let target = param("target");
-      if target == env("APP_ENV") {
-        let result = run("echo Deploying to production server");
-      } else {
-        let result = run("echo Deploying to staging server");
-      }
+      - name: announce
+        run: "echo \"Deploying ${target} (${notes})\""
+
+      - name: production only
+        run: "echo Deploying to production server"
+        if: param("target") == "production"
+
+      - name: staging only
+        run: "echo Deploying to staging server"
+        if: param("target") != "production"
+
+      - lane: notify
+        with:
+          channel: "#releases-${target}"
+
     after:
       - echo "Deploy done"
+
+  notify:
+    description: "Post a release note (called by other lanes)"
+    private: true
+    params:
+      channel:
+        type: string
+        required: true
+    steps:
+      - run: "echo Posting to ${channel}"

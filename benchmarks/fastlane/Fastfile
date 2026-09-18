@@ -1,0 +1,42 @@
+# The fastlane half of the benchmark. Every lane here has a line-for-line
+# equivalent in ../shlane.yaml, so the two are doing the same work.
+
+skip_docs
+
+platform :android do
+  desc "One step that does nothing, to measure start-up"
+  lane :noop do
+    sh("true")
+  end
+
+  desc "20 shell steps in a row, to measure per-step overhead"
+  lane :many do
+    sh("echo step 1")
+    sh("echo step 2")
+    sh("echo step 3")
+    sh("echo step 4")
+    sh("echo step 5")
+    sh("echo step 6")
+    sh("echo step 7")
+    sh("echo step 8")
+    sh("echo step 9")
+    sh("echo step 10")
+    sh("echo step 11")
+    sh("echo step 12")
+    sh("echo step 13")
+    sh("echo step 14")
+    sh("echo step 15")
+    sh("echo step 16")
+    sh("echo step 17")
+    sh("echo step 18")
+    sh("echo step 19")
+    sh("echo step 20")
+  end
+
+  desc "A parameter, an environment variable and a value passed between steps"
+  lane :interpolate do |options|
+    target = options[:target]
+    sha = sh("git rev-parse --short HEAD", log: false).strip
+    sh("echo #{target} #{sha} #{ENV['BENCH_ENV']}")
+  end
+end

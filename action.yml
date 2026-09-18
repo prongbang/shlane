@@ -1,0 +1,53 @@
+name: shlane
+description: Run a shlane lane
+author: prongbang
+
+branding:
+  icon: play-circle
+  color: orange
+
+inputs:
+  lane:
+    description: Lane to run. Leave empty to only install shlane.
+    required: false
+  params:
+    description: Parameters for the lane, as `key=value` separated by spaces.
+    required: false
+    default: ""
+  version:
+    description: Version to install, or `latest`.
+    required: false
+    default: latest
+  args:
+    description: Extra arguments, e.g. `--report junit:reports/shlane.xml`.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory to run in.
+    required: false
+    default: "."
+
+outputs:
+  version:
+    description: The version that was installed.
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install shlane
+      id: install
+      shell: bash
+      env:
+        SHLANE_VERSION: ${{ inputs.version == 'latest' && '' || inputs.version }}
+        SHLANE_INSTALL_DIR: ${{ runner.temp }}/shlane-bin
+      run: |
+        curl -fsSL "https://raw.githubusercontent.com/prongbang/shlane/master/install.sh" | sh
+        echo "$SHLANE_INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "version=$("$SHLANE_INSTALL_DIR/shlane" --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+    - name: Run the lane
+      if: inputs.lane != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: shlane run ${{ inputs.lane }} ${{ inputs.params }} ${{ inputs.args }}
