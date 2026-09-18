@@ -18,7 +18,7 @@ use std::process::{Command, Stdio};
 /// would hit, not only the tests. Steps already run in the POSIX shell that
 /// comes with Git for Windows, so anything that is not a native executable goes
 /// through that same shell.
-fn spawner(executable: &Path, env: &BTreeMap<String, String>) -> Result<Command> {
+pub(crate) fn spawner(executable: &Path, env: &BTreeMap<String, String>) -> Result<Command> {
     if native_executable(executable) {
         return Ok(Command::new(executable));
     }

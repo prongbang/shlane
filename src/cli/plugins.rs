@@ -4,7 +4,7 @@ use crate::config::loader::Discovered;
 use crate::error::{Result, ShlaneError};
 use crate::plugin::{self, protocol, Loaded};
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 pub fn list(found: &Discovered) -> Result<()> {
     let plugins = plugin::load_all(&found.config, &found.root)?;
@@ -253,7 +253,12 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         false,
     );
 
-    let mut child = Command::new(&plugin.entry)
+    // The same spawn rule a plugin's action uses: on Windows a script cannot be
+    // executed directly, so it goes through the POSIX shell. `verify` starting
+    // a plugin differently from the way a lane starts it would check something
+    // other than what runs.
+    let mut child = plugin::action::spawner(&plugin.entry, &std::collections::BTreeMap::new())
+        .map_err(|err| err.to_string())?
         .current_dir(&plugin.directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
