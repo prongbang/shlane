@@ -794,7 +794,9 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-Minimum supported Rust version: **1.85** (required by `ureq`).
+Minimum supported Rust version: **1.89**, which is what `aes` 0.9.3 needs. `cargo
+install` resolves dependencies fresh rather than from the committed lockfile, so the
+number here is what a fresh resolve requires, not what this repository happens to pin.
 
 **Windows.** Steps run in a POSIX shell on every platform, Windows included: every value
 substituted into a `run:` is escaped by POSIX rules, and handing that to `cmd.exe`, which

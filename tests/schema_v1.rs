@@ -115,12 +115,29 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str]) -> (i32, String, String) {
-        let output = Command::new(env!("CARGO_BIN_EXE_shlane"))
+        // The runner's own CI variables would otherwise reach the shlane under
+        // test and change what it prints.
+        let mut command = Command::new(env!("CARGO_BIN_EXE_shlane"));
+        command
             .args(args)
             .current_dir(&self.path)
             .env_remove("SHLANE_CONFIG")
-            .output()
-            .expect("shlane should run");
+            .env_remove("SHLANE_SHELL");
+        for name in [
+            "CI",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "BITRISE_IO",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "TRAVIS",
+            "TEAMCITY_VERSION",
+            "TF_BUILD",
+        ] {
+            command.env_remove(name);
+        }
+        let output = command.output().expect("shlane should run");
         (
             output.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&output.stdout).into_owned(),
