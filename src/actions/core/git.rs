@@ -162,6 +162,56 @@ impl Action for GitTag {
     }
 }
 
+/// Bring the branch up to date before a lane that is about to write to it.
+pub struct GitPull;
+
+impl Action for GitPull {
+    fn name(&self) -> &'static str {
+        "git_pull"
+    }
+
+    fn description(&self) -> &'static str {
+        "Update the current branch from a remote"
+    }
+
+    fn schema(&self) -> Vec<ArgSpec> {
+        vec![
+            ArgSpec::new("remote", "Remote to pull from").default("origin"),
+            ArgSpec::new("branch", "Branch to pull; defaults to the current one"),
+            ArgSpec::new("rebase", "Rebase instead of merging").default("false"),
+            ArgSpec::new("tags", "Fetch tags as well").default("true"),
+        ]
+    }
+
+    fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
+        let remote = args.get_or("remote", "origin");
+        let branch = match args.get("branch").filter(|value| !value.is_empty()) {
+            Some(branch) => branch.to_string(),
+            None => ctx.capture("git rev-parse --abbrev-ref HEAD")?,
+        };
+
+        let before = ctx.capture("git rev-parse HEAD")?;
+        let rebase = if args.flag("rebase") { " --rebase" } else { "" };
+        let tags = if args.flag("tags") { " --tags" } else { "" };
+
+        ctx.require(&format!(
+            "git pull{rebase}{tags} {} {}",
+            quote(remote),
+            quote(&branch)
+        ))?;
+
+        // Read back rather than parsing git's output: under --dry-run the pull
+        // was skipped, and reporting a commit it did not move to would be a
+        // lie a later step acts on.
+        let after = ctx.capture("git rev-parse HEAD")?;
+        Ok(ActionOutput::new()
+            .with("remote", remote)
+            .with("branch", branch)
+            .with("sha", after.clone())
+            .with("changed", (before != after).to_string()))
+    }
+}
+
 pub struct GitPush;
 
 impl Action for GitPush {

@@ -3127,3 +3127,204 @@ fn plugin_remove_reports_a_name_that_is_not_declared() {
         .assert_code(2)
         .assert_stderr_contains("is not declared in this config");
 }
+
+#[test]
+fn copy_artifacts_gathers_matches_and_warns_about_the_rest() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  collect:
+    steps:
+      - id: copied
+        action: copy_artifacts
+        with:
+          paths: "build/**/*.apk, build/mapping.txt, build/nothing-here.txt"
+          into: artifacts
+      - run: echo count=${steps.copied.count}
+"#,
+    );
+    sandbox.write("build/outputs/apk/app-release.apk", "apk");
+    sandbox.write("build/outputs/apk/app-debug.apk", "apk");
+    sandbox.write("build/mapping.txt", "map");
+    sandbox.write("build/notes.md", "not an artifact");
+
+    let run = sandbox.run(&["run", "collect"]);
+    run.assert_code(0).assert_stdout_contains("count=3");
+    run.assert_stderr_contains("'build/nothing-here.txt' matched nothing");
+
+    assert!(sandbox.path().join("artifacts/app-release.apk").is_file());
+    assert!(sandbox.path().join("artifacts/mapping.txt").is_file());
+    assert!(
+        !sandbox.path().join("artifacts/notes.md").exists(),
+        "a file that matched no pattern must not be copied"
+    );
+}
+
+#[test]
+fn copy_artifacts_can_fail_when_a_pattern_matches_nothing() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  collect:
+    steps:
+      - action: copy_artifacts
+        with:
+          paths: "build/*.apk"
+          into: artifacts
+          fail_on_missing: true
+"#,
+    );
+
+    sandbox
+        .run(&["run", "collect"])
+        .assert_code(1)
+        .assert_stderr_contains("matched nothing");
+}
+
+#[test]
+fn template_render_uses_the_same_names_as_a_step() {
+    let sandbox = Sandbox::new(
+        r#"
+env:
+  APP_VERSION: "1.2.3"
+lanes:
+  write:
+    params:
+      target:
+        type: string
+        required: true
+    steps:
+      - id: first
+        run: echo produced
+      - action: template_render
+        with:
+          template: notes.tmpl
+          output: notes.txt
+"#,
+    );
+    sandbox.write(
+        "notes.tmpl",
+        "version=${env.APP_VERSION}\ntarget=${params.target}\nlane=${shlane.lane}\nfirst=${steps.first.stdout}\n",
+    );
+
+    sandbox.run(&["run", "write", "target=prod"]).assert_code(0);
+
+    let out = fs::read_to_string(sandbox.path().join("notes.txt")).expect("rendered file");
+    assert_eq!(
+        out, "version=1.2.3\ntarget=prod\nlane=write\nfirst=produced\n",
+        "rendered:\n{out}"
+    );
+}
+
+#[test]
+fn which_tool_checks_the_version_it_finds() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  ok:
+    steps:
+      - action: which_tool
+        with: { name: git, min_version: "1.0" }
+  missing:
+    steps:
+      - action: which_tool
+        with: { name: definitely-not-installed-xyz }
+  too_old:
+    steps:
+      - action: which_tool
+        with: { name: git, min_version: "999.0" }
+"#,
+    );
+
+    sandbox.run(&["run", "ok"]).assert_code(0);
+    sandbox
+        .run(&["run", "missing"])
+        .assert_code(1)
+        .assert_stderr_contains("is not installed, or not on PATH");
+    sandbox
+        .run(&["run", "too_old"])
+        .assert_code(1)
+        .assert_stderr_contains("needs 999.0 or newer");
+}
+
+#[test]
+fn zip_and_unzip_round_trip() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  pack:
+    steps:
+      - action: zip
+        with: { path: payload, output: payload.zip }
+      - run: rm -rf payload
+      - action: unzip
+        with: { archive: payload.zip, into: restored }
+"#,
+    );
+    sandbox.write("payload/one.txt", "first");
+    sandbox.write("payload/nested/two.txt", "second");
+
+    sandbox.run(&["run", "pack"]).assert_code(0);
+    assert_eq!(
+        fs::read_to_string(sandbox.path().join("restored/payload/nested/two.txt"))
+            .expect("extracted file"),
+        "second"
+    );
+}
+
+#[test]
+fn xcode_settings_changes_every_configuration() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  sign:
+    steps:
+      - action: xcode_settings
+        with:
+          project: App.xcodeproj
+          team_id: ABCD123456
+          code_sign_style: Manual
+"#,
+    );
+    sandbox.write(
+        "App.xcodeproj/project.pbxproj",
+        "{\n\tbuildSettings = {\n\t\tCODE_SIGN_STYLE = Automatic;\n\t\tDEVELOPMENT_TEAM = \"\";\n\t};\n\tbuildSettings = {\n\t\tCODE_SIGN_STYLE = Automatic;\n\t\tDEVELOPMENT_TEAM = \"\";\n\t};\n}\n",
+    );
+
+    sandbox
+        .run(&["run", "sign"])
+        .assert_code(0)
+        .assert_stdout_contains("Changed 4 setting(s)");
+
+    let project = fs::read_to_string(sandbox.path().join("App.xcodeproj/project.pbxproj"))
+        .expect("project readable");
+    assert_eq!(project.matches("DEVELOPMENT_TEAM = ABCD123456;").count(), 2);
+    assert_eq!(project.matches("CODE_SIGN_STYLE = Manual;").count(), 2);
+}
+
+#[test]
+fn xcode_settings_warns_about_a_setting_the_project_does_not_have() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  sign:
+    steps:
+      - action: xcode_settings
+        with:
+          project: App.xcodeproj
+          team_id: ABCD123456
+          code_sign_identity: "iPhone Distribution"
+"#,
+    );
+    sandbox.write(
+        "App.xcodeproj/project.pbxproj",
+        "{\n\tbuildSettings = {\n\t\tDEVELOPMENT_TEAM = \"\";\n\t};\n}\n",
+    );
+
+    // Silence here would mean a lane that thinks it set a signing identity
+    // while the build keeps whatever was there before.
+    sandbox
+        .run(&["run", "sign"])
+        .assert_code(0)
+        .assert_stderr_contains("CODE_SIGN_IDENTITY does not appear in this project");
+}

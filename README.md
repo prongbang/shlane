@@ -258,9 +258,15 @@ reports problems that do not exist and hides the ones that do.
 | `git_status_clean` | Fail if the working tree is dirty |
 | `git_branch` | The branch and short SHA |
 | `git_commit` / `git_tag` / `git_push` | The release trio |
+| `git_pull` | Update the branch, optionally rebasing |
 | `last_git_tag` | The most recent tag, or `found: false` |
 | `changelog_from_commits` | Commit subjects since a tag |
 | `read_version` / `bump_version` | `Cargo.toml`, `package.json`, `pubspec.yaml` or `VERSION` |
+| `which_tool` | Check a binary is installed, and new enough |
+| `zip` / `unzip` | Archive and extract |
+| `copy_artifacts` | Gather build outputs into one directory |
+| `download` | Fetch a file over HTTP, with an optional checksum |
+| `template_render` | Substitute `${...}` in a file (in place of `erb`) |
 | `http_request` | Any HTTP call, with retries |
 | `notify_slack` | Post to an incoming webhook |
 
@@ -337,6 +343,9 @@ which must be installed.
 | `test_ios` | Run tests in a simulator, optionally writing JUnit |
 | `keychain` | Create, unlock or delete a keychain |
 | `setup_ci` | Prepare a CI machine for signing, and clean up afterwards |
+| `provisioning_profile` | Download a profile Apple already holds (in place of `sigh`) |
+| `certificate` | Download a signing certificate (in place of `cert`) |
+| `xcode_settings` | Change signing settings in a `.xcodeproj` |
 | `testflight` | Upload a build to TestFlight |
 | `asc_request` | Any App Store Connect API call, authenticated |
 
@@ -410,6 +419,34 @@ files real OpenSSL produced.
 **It is read-only.** `match` also creates and revokes certificates, and getting that
 wrong takes away a team's ability to ship. Keep issuing with `match`; let shlane consume
 the repository. `install: false` fetches and decrypts without touching a keychain.
+
+`provisioning_profile` and `certificate` are the same bargain against the App Store
+Connect API: they download what Apple already holds, and neither creates nor revokes
+anything.
+
+```yaml
+      - id: profile
+        action: provisioning_profile
+        with:
+          name: "Acme App Store"
+          install: true             # into ~/Library/MobileDevice/Provisioning Profiles
+          key_id: ${ASC_KEY_ID}
+          issuer_id: ${ASC_ISSUER_ID}
+          key: ${ASC_KEY_P8}
+      - action: xcode_settings
+        with:
+          project: App.xcodeproj
+          team_id: ${steps.profile.team_id}
+          code_sign_style: Manual
+          profile_specifier: ${steps.profile.name}
+```
+
+`certificate` returns the public certificate only — Apple does not hand back the private
+key, so signing still needs the `.p12` from `codesign_sync`, or
+`-allowProvisioningUpdates`. It says so rather than leaving you to find out at the
+signing step. `xcode_settings` changes settings the project already declares, in every
+build configuration, and warns about any it could not find rather than reporting a
+success that changed nothing.
 
 ## Environment and secrets
 

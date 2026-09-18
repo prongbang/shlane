@@ -108,6 +108,57 @@ pub fn send(
     Err(last)
 }
 
+/// Fetch a URL as bytes.
+///
+/// Separate from [`send`] because that reads the body as a string, which is
+/// right for an API and wrong for a `.zip`: a keystore read through
+/// `read_to_string` comes out replaced with U+FFFD and only fails later, when
+/// something tries to sign with it.
+pub fn fetch_bytes(
+    ctx: &ActionContext<'_>,
+    url: &str,
+    headers: &[(String, String)],
+) -> std::result::Result<(u16, Vec<u8>), String> {
+    let agent = agent();
+    let mut last = String::new();
+
+    for attempt in 1..=RETRIES {
+        let mut request = agent.get(url);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+
+        match request.call() {
+            Ok(mut response) => {
+                let status = response.status().as_u16();
+                let bytes = response
+                    .body_mut()
+                    .with_config()
+                    .limit(u64::MAX)
+                    .read_to_vec()
+                    .map_err(|err| format!("could not read the body: {err}"))?;
+
+                if status < 500 || attempt == RETRIES {
+                    return Ok((status, bytes));
+                }
+                last = format!("HTTP {status}");
+            }
+            Err(err) => {
+                last = err.to_string();
+                if attempt == RETRIES {
+                    return Err(last);
+                }
+            }
+        }
+
+        ctx.ui
+            .say(&format!("Attempt {attempt} failed ({last}); retrying..."));
+        std::thread::sleep(BACKOFF * attempt);
+    }
+
+    Err(last)
+}
+
 fn parse_headers(raw: &str) -> Vec<(String, String)> {
     raw.split('\n')
         .filter_map(|line| line.split_once(':'))

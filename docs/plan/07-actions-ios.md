@@ -120,6 +120,10 @@ ios:
 | `testflight` | ✅ done, through `xcrun altool` |
 | `asc_request` | ✅ done — calls any ASC API endpoint, with an ES256 JWT |
 | `codesign_sync` (match) | ✅ done, read-only — reads an existing match repo, never issues or revokes a certificate |
+| `provisioning_profile` (sigh) | ✅ done, read-only — downloads a profile Apple already holds |
+| `certificate` (cert) | ✅ done, read-only — the public certificate only; Apple does not return the private key |
+| `xcode_settings` | ✅ done — changes settings the project already declares |
+| `setup_ci` | ✅ done — temporary keychain, deleted when the run ends either way |
 | `appstore` (deliver) | ❌ not done (M7) |
 
 ## Risks

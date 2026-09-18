@@ -60,7 +60,8 @@ be passed from one step to another.
 **Done when:** a "bump version, commit, tag, push, tell Slack" lane needs no shell at
 all.
 
-> 13 actions done, plus `action()` in Rhai. `call_lane()` is still not done — it needs a
+> The P0 set done, and later the P1/P2 rest: `which_tool`, `git_pull`, `zip`, `unzip`,
+> `copy_artifacts`, `download` and `template_render`, plus `action()` in Rhai. `call_lane()` is still not done — it needs a
 > nested executor — so a `lane:` step does it instead.
 >
 > Changed from the plan: `ureq` instead of `reqwest`, because a blocking CLI should not
