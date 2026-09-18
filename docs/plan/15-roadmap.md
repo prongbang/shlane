@@ -146,6 +146,11 @@ all.
 > promise, and `tests/schema_v1.rs` fails if a key is accepted without being written
 > down.
 >
+> `cargo publish --dry-run` passes, with `exclude` keeping the plan, the benchmarks and
+> the sample projects out of what a `cargo install` downloads, and CI runs the dry run so
+> it cannot regress. Nothing is published and nothing is tagged: both are public and
+> irreversible, and this branch is not merged.
+>
 > **Not done:** the documentation site. The Homebrew
 > formula is generated and pushed by the release workflow, but `prongbang/homebrew-tap`
 > does not exist yet — see `packaging/homebrew/README.md`.

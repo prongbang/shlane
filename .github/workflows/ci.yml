@@ -85,6 +85,18 @@ jobs:
           name: xcresult-json
           path: examples/ios-sample/build/xcresulttool.json
 
+  package:
+    name: the crate still publishes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Cargo.toml points at README.md and LICENSE, and `exclude` decides what
+      # a `cargo install` downloads. Both are easy to break without noticing
+      # until the day of a release.
+      - run: cargo publish --dry-run
+
   example:
     name: example config runs
     runs-on: ubuntu-latest

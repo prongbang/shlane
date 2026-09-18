@@ -6,6 +6,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-18
+
+Everything below, from the foundations through M7. 0.1.0 was the 199-line prototype
+this replaced; it was never published to crates.io, so this is the first release
+anyone can install.
+
+### Added since the milestones above were written
+
+- **`setup_ci`** prepares a CI machine for signing and registers the cleanup that
+  removes the keychain when the run ends, whether it passed or failed. A build machine
+  that keeps the keychain the last job created is one that stops being able to sign.
+  Off CI it says so and does nothing, rather than taking over a developer's default
+  keychain.
+- **`appstore`**, in place of `deliver`: App Store metadata over the App Store Connect
+  API, attaching a build, and submitting for review. It reads a fastlane-shaped
+  metadata directory. A locale the version does not have is reported rather than
+  created, and `name.txt` and `subtitle.txt` are called out as app-level metadata
+  shlane does not set instead of being read and dropped. Not verified against Apple.
+- **`provisioning_profile` and `certificate`** download what Apple already holds, and
+  like `codesign_sync` neither issues nor revokes anything. `certificate` says out loud
+  that Apple returns only the public certificate, so nobody discovers that at the
+  signing step.
+- **`xcode_settings`** changes signing settings in a `.xcodeproj`, in every build
+  configuration, and warns about a setting the project does not declare rather than
+  reporting a success that changed nothing.
+- **`which_tool`, `git_pull`, `zip`, `unzip`, `copy_artifacts`, `download` and
+  `template_render`** -- the P1/P2 actions from the plan. 25 actions to 36.
+- **`call_lane()` in scripts**, and **`action()` inside a Rhai plugin**. Both were
+  blocked on the same thing: a builtin runs in an engine the runner owns. `call_lane()`
+  builds a second runner over the same shared state; the registry is now reached
+  through a weak handle, so it and the plugin it holds no longer keep each other alive.
+- **`shlane plugin add` and `remove`.** `add` writes the entry into `shlane.yaml` as
+  text, so comments and formatting survive, and takes the plugin's name from its
+  manifest. `remove` refuses while a lane still calls one of the plugin's actions, and
+  leaves a `path:` plugin's directory alone.
+- **`shlane cache-paths`** reports what a config is going to download, worked out from
+  the actions and commands it contains.
+- **A Windows build.** Steps run in a POSIX shell there -- the one Git for Windows
+  ships -- because the escaping applied to every substituted value is POSIX and
+  `cmd.exe` would re-interpret it. `SHLANE_SHELL` points shlane at another shell.
+- **`docs/schema-v1.md`**, the schema reference and the compatibility promise, with
+  `tests/schema_v1.rs` to stop the document and the code drifting apart.
+- **`benchmarks/`**, comparing shlane with fastlane on the same lanes.
+- **A Homebrew formula** generated from a release's checksums, pushed to the tap by the
+  release workflow.
+
+### Fixed since the milestones above were written
+
+- **A value substituted into an action argument that is run as a shell command was not
+  escaped.** `action: sh` with `command: echo ${params.x}` ran what a parameter of
+  `x; touch PWNED` asked for, while the same thing written as `run:` was safe. The
+  guarantee should not depend on which spelling was used.
+- **An error raised inside a script was stringified at every level.** A lane calling
+  itself printed sixteen nested "step script failed: lane: ..." wrappers with the real
+  reason at the end; it now reports the reason.
+
+### Notes
+
+- The iOS actions, `play_store` and `appstore` have not been run against the real
+  services: those need an Apple developer account and a Google service account. What
+  each of them builds -- the commands, the plists, the JWT claims, the request bodies
+  -- is tested here.
+- The Windows binary is built and type-checked, and the tests run on `windows-latest`,
+  but nobody has used it on a real Windows machine.
+
+
 ### Milestone M7 — CI integration and distribution
 
 #### Added
@@ -28,8 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Notes
 
-- No Windows binary: the runner still shells out to `sh`, so it would not work there.
-  Saying so is better than shipping one that fails on the first step.
+- No Windows binary at this point: the runner still shelled out to `sh` unconditionally.
+  Added later in this release, running in the POSIX shell Git for Windows ships.
 
 ### Milestone M5 — iOS, continued
 
@@ -96,7 +162,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receives the declared arguments plus `dry_run` and returns a map of outputs. It gets
   the same builtins a lane's script has, except `action()` — the registry holds the
   plugin, so it cannot be handed the registry back; calling it says exactly that rather
-  than "function not found".
+  than "function not found". (Later in this release the registry became a weak handle,
+  and `action()` works there too.)
 - `shlane plugin verify` compiles a Rhai plugin and checks it defines a function for
   every action its manifest declares.
 
@@ -145,11 +212,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Signing goes through Xcode's `-allowProvisioningUpdates` with an App Store Connect
   key — option C in `docs/plan/07-actions-ios.md`. A synced certificate store like
-  fastlane's `match` is **not** implemented; for a team that depends on one, that is
-  the remaining blocker.
-- `test_ios` does not convert `.xcresult` to JUnit yet. Doing that means parsing
-  `xcresulttool`'s output, whose shape cannot be checked without Xcode, and guessing at
-  it would ship something that looks finished and is not.
+  fastlane's `match` is **not** implemented at this point; `codesign_sync` arrived in
+  M6, read-only.
+- `test_ios` does not convert `.xcresult` to JUnit at this point. Doing that means
+  parsing `xcresulttool`'s output, whose shape cannot be checked without Xcode, and
+  guessing at it would ship something that looks finished and is not. Added later in
+  this release, against a fixture here and a real `.xcresult` on the macOS runner.
 - Everything here needs macOS. The command construction, the plist and the token claims
   are unit-tested; the round trip is not.
 
