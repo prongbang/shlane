@@ -11,7 +11,7 @@
 | `x86_64-unknown-linux-gnu` | ordinary CI |
 | `aarch64-unknown-linux-gnu` | ARM runners |
 | `x86_64-unknown-linux-musl` | containers without glibc |
-| `x86_64-pc-windows-msvc` | Windows, for the core and Android only |
+| `x86_64-pc-windows-msvc` | Windows, for the core and Android only — needs a POSIX shell, which Git for Windows provides |
 
 [`cargo-dist`](https://opensource.axo.dev/cargo-dist/) produces the release workflow, the
 installer script, the checksums and the release notes in one go.

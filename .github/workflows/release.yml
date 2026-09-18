@@ -36,6 +36,10 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             packages: musl-tools
+          # Steps still run in a POSIX shell; windows-latest has one.
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            exe: .exe
     steps:
       - uses: actions/checkout@v4
 
@@ -63,10 +67,16 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           name="shlane-${version}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
-          cp "target/${{ matrix.target }}/release/shlane" "dist/${name}/"
+          cp "target/${{ matrix.target }}/release/shlane${{ matrix.exe }}" "dist/${name}/"
           cp README.md LICENSE CHANGELOG.md "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
-          shasum -a 256 "dist/${name}.tar.gz" | awk '{print $1"  '"${name}"'.tar.gz"}' > "dist/${name}.tar.gz.sha256"
+          # shasum is not on a Windows runner; sha256sum is, through git bash.
+          if command -v shasum >/dev/null; then
+            sum=$(shasum -a 256 "dist/${name}.tar.gz" | cut -d' ' -f1)
+          else
+            sum=$(sha256sum "dist/${name}.tar.gz" | cut -d' ' -f1)
+          fi
+          echo "${sum}  ${name}.tar.gz" > "dist/${name}.tar.gz.sha256"
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4

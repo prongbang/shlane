@@ -790,6 +790,14 @@ cargo fmt --all --check
 
 Minimum supported Rust version: **1.85** (required by `ureq`).
 
+**Windows.** Steps run in a POSIX shell on every platform, Windows included: every value
+substituted into a `run:` is escaped by POSIX rules, and handing that to `cmd.exe`, which
+quotes differently, would turn the escaping back into the injection it exists to prevent.
+shlane looks for `bash` or `sh` on `PATH` and then in Git for Windows' usual locations,
+and says so if it finds neither. `SHLANE_SHELL` points it somewhere else. Process groups
+and signal forwarding are POSIX-only, so on Windows a timed-out step is killed rather than
+asked to stop.
+
 The plan the project is being built to — gap analysis against fastlane, the action
 system, migration, milestones — is in [`docs/plan/`](docs/plan/README.md). Changes are
 recorded in [CHANGELOG.md](CHANGELOG.md).

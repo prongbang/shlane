@@ -3484,3 +3484,30 @@ lanes:
         .assert_code(2)
         .assert_stderr_contains("skip_screenshots");
 }
+
+#[test]
+fn the_shell_can_be_chosen_through_the_environment() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  hello:
+    steps:
+      - run: echo which-shell
+"#,
+    );
+
+    // The override is what makes shlane work on a machine whose POSIX shell is
+    // somewhere other than /bin/sh -- Windows, where it comes with Git.
+    sandbox
+        .run_with_env(&["run", "hello"], &[("SHLANE_SHELL", "/bin/sh")])
+        .assert_code(0)
+        .assert_stdout_contains("which-shell");
+
+    sandbox
+        .run_with_env(
+            &["run", "hello"],
+            &[("SHLANE_SHELL", "/definitely/not/a/shell")],
+        )
+        .assert_code(5)
+        .assert_stderr_contains("/definitely/not/a/shell");
+}

@@ -14,12 +14,23 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const SHELL: &str = "sh";
+/// The shell on a unix machine.
+const POSIX_SHELL: &str = "sh";
+
+/// Where Git for Windows puts the POSIX shell it ships.
+#[cfg(windows)]
+const GIT_BASH: &[&str] = &[
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
+    r"C:\Program Files\Git\usr\bin\sh.exe",
+];
 
 /// How often a timed step is checked for completion.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 /// How long a timed-out step gets to shut down before it is killed outright.
+/// Only used where there is a process group to signal.
+#[cfg(unix)]
 const GRACE: Duration = Duration::from_millis(500);
 
 pub struct Outcome {
@@ -42,8 +53,63 @@ pub struct Spawn<'a> {
     pub secrets: &'a Secrets,
 }
 
+/// Which program runs a step's command.
+///
+/// POSIX everywhere, Windows included. Every value substituted into a `run:`
+/// is escaped by POSIX rules (`runtime::interpolate`), and handing those to
+/// `cmd.exe`, which quotes differently, would turn careful escaping back into
+/// the command injection it exists to prevent. Windows users have a POSIX
+/// shell already: it comes with Git for Windows.
+///
+/// `SHLANE_SHELL` overrides it, from the config's `env:` or the process.
+fn shell(env: &BTreeMap<String, String>) -> Result<String> {
+    if let Some(configured) = env
+        .get("SHLANE_SHELL")
+        .cloned()
+        .or_else(|| std::env::var("SHLANE_SHELL").ok())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(configured);
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(POSIX_SHELL.to_string())
+    }
+
+    #[cfg(windows)]
+    {
+        for candidate in ["bash.exe", "sh.exe"] {
+            if which(candidate) {
+                return Ok(candidate.to_string());
+            }
+        }
+        for candidate in GIT_BASH {
+            if Path::new(candidate).is_file() {
+                return Ok((*candidate).to_string());
+            }
+        }
+        Err(ShlaneError::ShellUnavailable {
+            shell: "bash".to_string(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "shlane runs steps in a POSIX shell, and there is none on PATH. Install Git for Windows, which ships one, or point SHLANE_SHELL at the shell you want.",
+            ),
+        })
+    }
+}
+
+#[cfg(windows)]
+fn which(program: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| dir.join(program).is_file())
+}
+
 pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
-    let mut builder = Command::new(SHELL);
+    let shell = shell(spawn.env)?;
+    let mut builder = Command::new(&shell);
     builder
         .arg("-c")
         .arg(spawn.command)
@@ -75,7 +141,7 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
     let mut child = builder
         .spawn()
         .map_err(|source| ShlaneError::ShellUnavailable {
-            shell: SHELL.to_string(),
+            shell: shell.clone(),
             source,
         })?;
 
@@ -91,7 +157,7 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
             child
                 .wait()
                 .map_err(|source| ShlaneError::ShellUnavailable {
-                    shell: SHELL.to_string(),
+                    shell: shell.clone(),
                     source,
                 })?;
             false
@@ -102,7 +168,7 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
     let status = child
         .wait()
         .map_err(|source| ShlaneError::ShellUnavailable {
-            shell: SHELL.to_string(),
+            shell: shell.clone(),
             source,
         })?;
 
@@ -162,7 +228,7 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<bool> {
             Ok(None) => {}
             Err(source) => {
                 return Err(ShlaneError::ShellUnavailable {
-                    shell: SHELL.to_string(),
+                    shell: POSIX_SHELL.to_string(),
                     source,
                 })
             }

@@ -144,8 +144,11 @@ all.
 > **Not done:** the documentation site, the Homebrew tap, and formally freezing schema
 > v1.
 >
-> **There is no Windows binary:** the runner still calls `sh` directly. Saying so is
-> better than shipping a binary that fails on the first step.
+> The Windows binary is built and released now. Steps still run in a POSIX shell there —
+> the one Git for Windows ships — because the escaping applied to every substituted value
+> is POSIX, and `cmd.exe` would re-interpret it. Type-checked and linked for
+> `x86_64-pc-windows-gnu`; the tests run on `windows-latest` in CI, but nobody has used it
+> on a real Windows machine yet.
 
 - the full documentation, on the web
 - schema v1 frozen, with a backward-compatibility promise
