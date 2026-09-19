@@ -1,0 +1,53 @@
+# The fixture behind docs/plan/17's section D: what a step does with a
+# parameter, a secret, a timeout, an interrupt and an archive. Run it with
+# tests/platform-checks.sh, which knows what each lane should print.
+version: 1
+
+env:
+  DEMO_TOKEN: s3cr3t-value-123
+
+lanes:
+  quoting:
+    params:
+      name:
+        type: string
+        default: "it's $(whoami) & \"quoted\""
+    steps:
+      - run: printf '%s\n' "${name}"
+
+  masking:
+    steps:
+      - run: echo "token is $DEMO_TOKEN"
+
+  timeout:
+    steps:
+      - run: sleep 10
+        timeout: 2s
+
+  archive:
+    steps:
+      - run: mkdir -p out && echo a > out/a.txt && echo b > out/b.key
+      - action: zip
+        with:
+          path: out
+          output: out.zip
+          exclude: "*.key"
+      - action: unzip
+        with:
+          archive: out.zip
+          into: extracted
+      - run: ls -R extracted
+
+  # The same without `exclude`, which is the one Windows can do without a zip
+  # binary: PowerShell's Compress-Archive cannot leave a file out.
+  archive_plain:
+    steps:
+      - run: mkdir -p out && echo a > out/a.txt && echo b > out/b.key
+      - action: zip
+        with:
+          path: out
+          output: plain.zip
+      - action: unzip
+        with:
+          archive: plain.zip
+          into: extracted_plain

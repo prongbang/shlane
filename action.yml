@@ -39,12 +39,27 @@ runs:
       id: install
       shell: bash
       env:
-        SHLANE_VERSION: ${{ inputs.version == 'latest' && '' || inputs.version }}
-        SHLANE_INSTALL_DIR: ${{ runner.temp }}/shlane-bin
+        VERSION: ${{ inputs.version }}
+        INSTALL_DIR: ${{ runner.temp }}/shlane-bin
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        curl -fsSL "https://raw.githubusercontent.com/prongbang/shlane/master/install.sh" | sh
-        echo "$SHLANE_INSTALL_DIR" >> "$GITHUB_PATH"
-        echo "version=$("$SHLANE_INSTALL_DIR/shlane" --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        # On Windows the runner hands out native paths (D:\a\_temp\...). bash
+        # needs the POSIX form of them; GITHUB_PATH wants the native one back.
+        posix() {
+          if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else echo "$1"; fi
+        }
+        # install.sh works out the latest release when SHLANE_VERSION is unset.
+        # An expression here cannot do it: `inputs.version == 'latest' && '' ||
+        # inputs.version` is `latest`, because '' is false to GitHub.
+        [ "$VERSION" = latest ] || export SHLANE_VERSION="$VERSION"
+        dir="$(posix "$INSTALL_DIR")"
+        # The action's own install.sh, so the script and the action stay the
+        # same version.
+        SHLANE_INSTALL_DIR="$dir" sh "$(posix "$ACTION_PATH")/install.sh"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        shlane="$dir/shlane"
+        [ -x "$shlane" ] || shlane="$shlane.exe"
+        echo "version=$("$shlane" --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
     - name: Run the lane
       if: inputs.lane != ''

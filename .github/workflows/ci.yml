@@ -142,6 +142,34 @@ jobs:
           jarsigner -verify build/counter-signed.aab | tee aab.txt
           grep -q 'jar verified' aab.txt || { echo "the AAB is not signed"; exit 1; }
 
+  docs:
+    name: the documentation site builds
+    runs-on: ubuntu-latest
+    env:
+      MDBOOK_VERSION: "0.5.4"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mdBook
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # mdBook renders an include whose file moved, or whose anchor was renamed,
+      # as a page with nothing but its title on it — and still exits 0. The build
+      # proves the book compiles; this test proves it says anything.
+      - run: cargo test --test docs_site
+      - run: mdbook build docs/site
+      # A link written for GitHub resolves against a different place on the site,
+      # and mdBook rewrites `.md` to `.html` on the way, so it breaks in the
+      # browser and nowhere else. This reads the built HTML, which is the only
+      # place that failure is visible.
+      - run: python3 docs/site/check-links.py docs/site/book
+
   package:
     name: the crate still publishes
     runs-on: ubuntu-latest
@@ -167,3 +195,112 @@ jobs:
         run: |
           ../target/debug/shlane run deploy target=production
           ../target/debug/shlane run deploy target=staging
+
+  released:
+    name: the released binary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: What install.sh picks for each machine
+        if: runner.os == 'Linux'
+        run: tests/install-sh.sh
+      # The rest installs the latest release for real. install.sh prints the
+      # version it installed by running the binary, so this also says the
+      # download works on this machine.
+      - name: Install the latest release
+        shell: bash
+        env:
+          INSTALL_DIR: ${{ runner.temp }}/shlane-installer
+        run: |
+          dir="$INSTALL_DIR"
+          if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$INSTALL_DIR")"; fi
+          SHLANE_INSTALL_DIR="$dir" sh ./install.sh
+          bin="$dir/shlane"
+          [ -x "$bin" ] || bin="$bin.exe"
+          echo "SHLANE_BIN=$bin" >> "$GITHUB_ENV"
+      - name: The example project
+        shell: bash
+        working-directory: example
+        run: |
+          "$SHLANE_BIN" validate
+          "$SHLANE_BIN" run deploy target=production
+          "$SHLANE_BIN" run deploy target=staging
+
+  behaviour:
+    name: what a build does here (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build
+      # Section D of docs/plan/17: quoting, masking, timeouts, interrupts and
+      # archives. It runs against a build of this commit rather than the
+      # released binary, so a fix for what it finds can land in the same PR;
+      # `released` and `alpine` below run the same script against what a user
+      # would actually have downloaded. On Windows this is the only thing that
+      # exercises the PowerShell archive fallback.
+      - name: What it does on this machine
+        shell: bash
+        run: |
+          bin="$PWD/target/debug/shlane"
+          [ -x "$bin" ] || bin="$bin.exe"
+          tests/platform-checks.sh "$bin"
+
+  alpine:
+    name: the musl binary on Alpine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # The musl build is the one nothing else runs: every other job here has
+      # a glibc loader, and a static binary that works on Ubuntu says nothing
+      # about Alpine.
+      - name: Install and check it inside alpine:3
+        run: |
+          docker run --rm -v "$PWD:/src" -w /tmp alpine:3 sh -c '
+            set -eu
+            apk add --no-cache curl tar zip unzip > /dev/null
+            SHLANE_INSTALL_DIR=/usr/local/bin sh /src/install.sh
+            /src/tests/platform-checks.sh shlane
+            cd /src/example
+            shlane validate
+            shlane run deploy target=production
+          '
+
+  action:
+    name: the GitHub Action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - id: shlane
+        uses: ./
+      - name: It is on PATH and said which version it is
+        shell: bash
+        run: |
+          shlane --version
+          version="${{ steps.shlane.outputs.version }}"
+          [ -n "$version" ] || { echo "the action reported no version"; exit 1; }
+          echo "installed $version"
+      # `version:` is the input most workflows set, and it takes a different
+      # path through the action than the default `latest`.
+      - id: pinned
+        uses: ./
+        with:
+          version: 0.2.3
+      - name: It installed the version it was asked for
+        shell: bash
+        run: |
+          version="${{ steps.pinned.outputs.version }}"
+          [ "$version" = "0.2.3" ] || { echo "wanted 0.2.3, got '$version'"; exit 1; }

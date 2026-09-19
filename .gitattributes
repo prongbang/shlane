@@ -1,0 +1,3 @@
+# Git Bash runs these, and it does not tolerate a carriage return: a checkout
+# that turned the line endings into CRLF would break install.sh on Windows.
+*.sh text eol=lf

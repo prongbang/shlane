@@ -6,6 +6,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A documentation site**, at <https://prongbang.github.io/shlane/>. `docs/site/` is
+  an mdBook, published by `.github/workflows/docs.yml` on every push to `master` that
+  touches the README, `docs/` or the changelog. Its pages carry no prose of their own:
+  each one includes Markdown that already exists in the repository, so the site and
+  what a reader sees on GitHub cannot drift apart.
+- **`tests/docs_site.rs`**, which is what makes that safe. mdBook renders an include
+  whose file moved or whose anchor was renamed as a page holding nothing but its
+  title, and still exits 0, so a green build proves little on its own. The tests fail
+  on a broken include, a page missing from `SUMMARY.md`, a stale anchor, and a README
+  section that was never given a page.
+
+### Fixed
+
+- **The README's relative links now work off GitHub.** Links such as
+  `docs/schema-v1.md` and `CHANGELOG.md` resolved against whatever page they were
+  rendered on, so every one of them was broken on crates.io. They are absolute now,
+  pointing at the documentation site for prose and at GitHub for repository files.
+- **`timeout:` did not stop a step on Windows.** It was reported as stopped, with the
+  right message, and the lane took as long as the step would have anyway: Windows has
+  no process group to signal, and killing the shell leaves what it started holding the
+  pipes shlane reads, so shlane went on waiting for the step it had just stopped. The
+  whole tree is taken now. On a 2 s timeout over a 10 s step, the lane took 10 s and
+  now takes 2 s.
+- **`install.sh` no longer asks api.github.com which version is latest.**
+  `releases/latest` redirects to the tag, which needs no token and is not rate limited;
+  the API is, per address, so an office or a CI runner that shares one could be told
+  `403` without having asked for anything. The API is still the fallback.
+- **`install.sh` retries a download that failed for a reason that can change.** Git for
+  Windows' curl gives up with `CRYPT_E_REVOCATION_OFFLINE` when it cannot reach the
+  server that answers for certificate revocation, which has nothing to do with the
+  file being fetched. It tries three times, and does not retry an HTTP error: a 404
+  will not become a 200.
+- **`install.sh` picks the musl build on Alpine** and anywhere else `ldd` reports musl,
+  instead of the glibc one, which does not run there. On aarch64, where there is no musl
+  release yet, it says so rather than installing a binary that cannot start.
+- **`install.sh` recognises Git Bash, MSYS2 and Cygwin** (`MINGW*`, `MSYS*`, `CYGWIN*`)
+  and installs `shlane.exe` from the Windows release. It used to refuse with `no
+  prebuilt binary for MINGW64_NT-10.0-... x86_64` although that binary exists.
+- **The GitHub Action installs anything at all.** `version: latest`, its default,
+  became `SHLANE_VERSION=latest` and the installer asked for
+  `shlane-latest-<target>.tar.gz`, which is a 404 — on every runner, since the first
+  release. The expression meant to blank it out,
+  `inputs.version == 'latest' && '' || inputs.version`, returns `latest`, because an
+  empty string is false to GitHub. CI now runs the action on Ubuntu x86-64, Ubuntu
+  arm64 and Windows, with the default and with a pinned version.
+- **The GitHub Action works on `windows-latest`.** It refused Git Bash's `uname` like
+  the installer did, and it also handed bash the runner's native `D:\a\_temp\...`
+  paths. It now converts them
+  with `cygpath`, and runs the `install.sh` that ships with the action rather than
+  whatever is on `master`, so the script and the action are always the same version.
+
 ## [0.2.3] - 2026-09-19
 
 ### Changed
@@ -35,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`build_ios` takes `skip_export`**, to stop after the archive. Without an export
   there is no `.ipa`, so nothing needs signing. `shlane migrate` maps gym's
   `skip_package_ipa` to it.
-- **[Move off fastlane in 15 minutes](docs/fastlane-in-15-minutes.md)**, a walk
+- **[Move off fastlane in 15 minutes](https://prongbang.github.io/shlane/fastlane-in-15-minutes.html)**, a walk
   through one ordinary Fastfile from `shlane migrate` to CI, with the output shlane
   really printed.
 - **`examples/ios-sample` has an app target now** (`App/project.yml`, generated with
@@ -487,7 +540,7 @@ anyone can install.
 - **Global hooks see the lane they surround**, so `${shlane.lane}` and the lane's
   parameters resolve inside `before_all`.
 
-### Foundations from [`docs/plan/15-roadmap.md`](docs/plan/15-roadmap.md) — correctness,
+### Foundations from [`docs/plan/15-roadmap.md`](https://github.com/prongbang/shlane/blob/master/docs/plan/15-roadmap.md) — correctness,
 structure and safety, so the action system can be built on something solid.
 
 #### Fixed

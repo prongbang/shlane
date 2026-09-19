@@ -132,7 +132,7 @@ all.
 > - ~~the GitHub Action wrapper~~ ✅ done (`action.yml` and `install.sh`)
 > - ~~the Homebrew tap~~ dropped after 0.2.0; `install.sh` covers macOS and Linux
 
-## M7 — 1.0 ⚠️ partly done
+## M7 — 1.0 ⚠️ waiting on the nightly
 
 > Done: CI detection and GitHub annotations, `shlane env`, `install.sh` with a checksum
 > check, `action.yml`, and the release workflow (macOS arm64/x86-64, Linux
@@ -149,7 +149,23 @@ all.
 > the sample projects out of what a `cargo install` downloads, and CI runs the dry run so
 > it cannot regress. `v0.2.3` is the latest tag, on GitHub Releases and on crates.io.
 >
-> **Not done:** the documentation site. The Homebrew tap was dropped.
+> The documentation site is done: `docs/site/` is an mdBook, published to
+> <https://prongbang.github.io/shlane/> by `.github/workflows/docs.yml`. Every page
+> there is a stub that `{{#include}}`s Markdown which already exists — the README by
+> named anchor, `docs/*.md` and the CHANGELOG whole — so there is one copy of the text
+> and the site cannot drift from what a reader sees on GitHub.
+>
+> That choice has one sharp edge, and it is why `tests/docs_site.rs` exists: mdBook
+> renders an include whose anchor was renamed as a page holding nothing but its title,
+> and still exits 0. A green `mdbook build` proves very little on its own. The test is
+> what fails — on a moved file, a renamed anchor, a page nobody linked, and a new
+> README section that was never given a home.
+>
+> The README's relative links became absolute while doing this. They had been broken
+> on crates.io all along, which nobody had noticed because the README is read on
+> GitHub.
+>
+> The Homebrew tap was dropped.
 >
 > The Windows binary is built and released now. Steps still run in a POSIX shell there —
 > the one Git for Windows ships — because the escaping applied to every substituted value
@@ -162,8 +178,9 @@ all.
 > tests before the platform counts as supported. Nobody has used it on a real Windows
 > machine yet, but its tests now run.
 
-- the full documentation, on the web
-- the nightly e2e on both platforms green for two weeks running
+- ~~the full documentation, on the web~~ ✅ done
+- the nightly e2e on both platforms green for two weeks running — the schedule is in
+  `ci.yml` and the sample jobs are what it runs; this one is only waiting
 
 ## If there is only time for some of it
 

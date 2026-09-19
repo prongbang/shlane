@@ -1,4 +1,5 @@
 # shlane
+<!-- ANCHOR: intro -->
 
 A fastlane-like automation tool written in Rust, with [Rhai](https://rhai.rs) scripting.
 
@@ -34,9 +35,13 @@ shlane run beta
 > **Status: early but real.** Everything documented here works and is covered by tests.
 > What has *not* been verified against real hardware is called out where it appears —
 > the iOS actions need macOS and Xcode, and `play_store` has never spoken to Google.
-> The plan behind all of it is in [`docs/plan/`](docs/plan/README.md).
+> The plan behind all of it is in [`docs/plan/`](https://github.com/prongbang/shlane/tree/master/docs/plan).
+
+<!-- ANCHOR_END: intro -->
 
 ## Contents
+
+Everything below is also a searchable site: **<https://prongbang.github.io/shlane/>**
 
 - [Install](#install) · [Quick start](#quick-start) · [Commands](#commands)
 - [Configuration](#configuration): [lanes](#a-lane), [steps](#a-step), [parameters](#parameters), [references](#references)
@@ -46,6 +51,7 @@ shlane run beta
 - [On CI](#on-ci) · [Reports](#reports) · [Exit codes](#exit-codes) · [Benchmark](#benchmark)
 
 ## Install
+<!-- ANCHOR: install -->
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/prongbang/shlane/master/install.sh | sh
@@ -62,10 +68,14 @@ cargo install --path .
 ```
 
 Prebuilt binaries cover macOS (Apple Silicon and Intel), Linux (x86-64, arm64, musl)
-and Windows (x86-64). On Windows, steps run in the POSIX shell that comes with Git for
-Windows — see [Development](#development) for why.
+and Windows (x86-64). The installer picks the musl build on Alpine and the Windows one
+when it is run from Git Bash, MSYS2 or Cygwin. On Windows, steps run in the POSIX shell
+that comes with Git for Windows — see [Development](https://prongbang.github.io/shlane/development.html) for why.
+
+<!-- ANCHOR_END: install -->
 
 ## Quick start
+<!-- ANCHOR: quick-start -->
 
 ```sh
 shlane init          # writes a starter shlane.yaml, guessing the project type
@@ -100,7 +110,10 @@ lanes:
 shlane run deploy target=staging
 ```
 
+<!-- ANCHOR_END: quick-start -->
+
 ## Commands
+<!-- ANCHOR: commands -->
 
 | Command | What it does |
 |---|---|
@@ -130,7 +143,10 @@ can be run from anywhere inside a project; `$SHLANE_CONFIG` overrides the search
 run from the directory holding the config, so a lane behaves the same wherever it is
 started.
 
+<!-- ANCHOR_END: commands -->
+
 ## Configuration
+<!-- ANCHOR: configuration -->
 
 ### Top level
 
@@ -245,7 +261,10 @@ own argument means, and quoting a file path would put the quotes in the path.
 Write `$${literal}` for a literal `${literal}`. Plain shell syntax (`$HOME`, `$(date)`)
 passes through untouched.
 
+<!-- ANCHOR_END: configuration -->
+
 ## Actions
+<!-- ANCHOR: actions -->
 
 An action is a named step that knows its own arguments, so `shlane validate` checks it
 before anything runs and `shlane action show <name>` documents it.
@@ -254,7 +273,10 @@ Under `--dry-run`, an action's *reads* still run — `git status`, `git describe
 a version file — while its *changes* are only described. A dry run that invents results
 reports problems that do not exist and hides the ones that do.
 
+<!-- ANCHOR_END: actions -->
+
 ### Core actions
+<!-- ANCHOR: actions-core -->
 
 | Action | What it does |
 |---|---|
@@ -299,7 +321,10 @@ lanes:
           text: "Released v${steps.bumped.version}"
 ```
 
+<!-- ANCHOR_END: actions-core -->
+
 ### Android
+<!-- ANCHOR: actions-android -->
 
 | Action | What it does |
 |---|---|
@@ -342,11 +367,14 @@ failure part-way leaves the store untouched. **Its request shapes are unit-teste
 round trip against Google is not.** `firebase_distribution` wraps the `firebase` CLI,
 which must be installed.
 
-[`examples/android-sample`](examples/android-sample) is a small Java app with unit
+[`examples/android-sample`](https://github.com/prongbang/shlane/tree/master/examples/android-sample) is a small Java app with unit
 tests. CI runs its tests, builds an unsigned APK and AAB, and signs both with
 `sign_android`, then checks the signatures.
 
+<!-- ANCHOR_END: actions-android -->
+
 ### iOS
+<!-- ANCHOR: actions-ios -->
 
 | Action | What it does |
 |---|---|
@@ -427,13 +455,16 @@ reimplementing the transporter protocol to replace a tool every macOS runner alr
 would be a great deal of machinery for nothing.
 
 **These need macOS and Xcode.** What to run is decided by functions that are tested
-here; the round trip is not. [`examples/ios-sample`](examples/ios-sample) is a small
+here; the round trip is not. [`examples/ios-sample`](https://github.com/prongbang/shlane/tree/master/examples/ios-sample) is a small
 SwiftUI counter with unit tests that the macOS CI job runs end to end, checking that the
 JUnit report describes the real run. The same job archives its app with `build_ios`,
 unsigned, using `skip_export: true`: that checks the archive, but not the export, which
 needs an Apple account.
 
+<!-- ANCHOR_END: actions-ios -->
+
 ### Code signing
+<!-- ANCHOR: actions-code-signing -->
 
 Two ways. Xcode's own `-allowProvisioningUpdates` with an App Store Connect key needs no
 certificate store at all. If your team already has a fastlane `match` repository,
@@ -489,7 +520,10 @@ signing step. `xcode_settings` changes settings the project already declares, in
 build configuration, and warns about any it could not find rather than reporting a
 success that changed nothing.
 
+<!-- ANCHOR_END: actions-code-signing -->
+
 ## Environment and secrets
+<!-- ANCHOR: environment-and-secrets -->
 
 ```yaml
 env:
@@ -517,7 +551,10 @@ for a terminal will see a pipe and turn colour off.
 `shlane env` shows what a lane would see, masked — what the config contributes by
 default, everything with `--all`.
 
+<!-- ANCHOR_END: environment-and-secrets -->
+
 ## Scripting
+<!-- ANCHOR: scripting -->
 
 Lanes can run [Rhai](https://rhai.rs) for what YAML cannot express:
 
@@ -560,7 +597,10 @@ that calls itself reports that rather than exhausting the stack.
 An action that fails inside a script reports the action's own error. The script is not
 wrapped around it, so a failure five lanes down still reads as one line.
 
+<!-- ANCHOR_END: scripting -->
+
 ## Plugins
+<!-- ANCHOR: plugins -->
 
 An action shlane does not have can come from a plugin: a directory with a manifest and
 either a program that speaks a small JSON protocol, or a Rhai script.
@@ -645,9 +685,12 @@ that no longer matches is refused — which is what catches a moved tag. The clo
 history is discarded, so a plugin cannot be updated in place without going through the
 checksum again.
 
-## Migrating from fastlane
+<!-- ANCHOR_END: plugins -->
 
-[Move off fastlane in 15 minutes](docs/fastlane-in-15-minutes.md) walks through a whole
+## Migrating from fastlane
+<!-- ANCHOR: migrating-from-fastlane -->
+
+[Move off fastlane in 15 minutes](https://prongbang.github.io/shlane/fastlane-in-15-minutes.html) walks through a whole
 Fastfile, from `shlane migrate` to CI.
 
 ```sh
@@ -665,10 +708,13 @@ Anything it does not understand is carried across as a `# TODO` comment rather t
 dropped, and the report says what needs a person. It says so loudly when a conditional
 block is flattened: those steps now run unconditionally.
 
-[`docs/migration.md`](docs/migration.md) has the full action table. It is generated from
+[`docs/migration.md`](https://prongbang.github.io/shlane/migration.html) has the full action table. It is generated from
 the same tables `shlane migrate` uses, and a test fails when the two differ.
 
+<!-- ANCHOR_END: migrating-from-fastlane -->
+
 ## On CI
+<!-- ANCHOR: on-ci -->
 
 ```yaml
 - uses: prongbang/shlane@v0.2.3
@@ -679,7 +725,7 @@ the same tables `shlane migrate` uses, and a test fails when the two differ.
 ```
 
 The action installs shlane — a 2.6 MB download, against the 48 seconds a cold
-`bundle install` of fastlane took when [measured](benchmarks/README.md) — and runs the
+`bundle install` of fastlane took when [measured](https://github.com/prongbang/shlane/tree/master/benchmarks) — and runs the
 lane.
 
 `setup_ci` creates a temporary keychain for the job and registers its deletion, which
@@ -711,7 +757,10 @@ Ctrl-C (or a `SIGTERM` from a CI shutting a job down) stops the running step, ru
 `error` hooks and exits `130`. Every step runs in its own process group, so nothing it
 started survives.
 
+<!-- ANCHOR_END: on-ci -->
+
 ## Reports
+<!-- ANCHOR: reports -->
 
 ```sh
 shlane run beta --report junit:reports/shlane.xml --report md:$GITHUB_STEP_SUMMARY
@@ -722,10 +771,13 @@ Reports are written whether the lane passed or failed — one that only appears 
 is no use to the job that has to explain the failure. Markdown is appended, so it can
 point at GitHub's step summary.
 
-## Benchmark
+<!-- ANCHOR_END: reports -->
 
-Both tools were given the same three lanes — [`benchmarks/fastlane/Fastfile`](benchmarks/fastlane/Fastfile)
-and [`benchmarks/shlane.yaml`](benchmarks/shlane.yaml) define them step for step — and
+## Benchmark
+<!-- ANCHOR: benchmark -->
+
+Both tools were given the same three lanes — [`benchmarks/fastlane/Fastfile`](https://github.com/prongbang/shlane/blob/master/benchmarks/fastlane/Fastfile)
+and [`benchmarks/shlane.yaml`](https://github.com/prongbang/shlane/blob/master/benchmarks/shlane.yaml) define them step for step — and
 timed on the same machine. Medians of 10 runs, with one warm-up discarded.
 
 ### Running a lane
@@ -779,7 +831,7 @@ takes the same minutes either way; what is measured here is only the overhead ea
 adds on top of it. And fastlane has ~400 actions against shlane's 25 — speed is not the
 deciding factor if the action you need exists on only one side.
 
-To reproduce, see [`benchmarks/README.md`](benchmarks/README.md):
+To reproduce, see [`benchmarks/README.md`](https://github.com/prongbang/shlane/tree/master/benchmarks):
 
 ```sh
 cargo build --release
@@ -787,7 +839,10 @@ gem install fastlane --no-document
 cd benchmarks && ./run.py --runs 10
 ```
 
+<!-- ANCHOR_END: benchmark -->
+
 ## Exit codes
+<!-- ANCHOR: exit-codes -->
 
 | Code | Meaning |
 |---|---|
@@ -799,7 +854,10 @@ cd benchmarks && ./run.py --runs 10
 | `5` | A tool shlane needs is not installed |
 | `130` | Stopped by Ctrl-C |
 
+<!-- ANCHOR_END: exit-codes -->
+
 ## Development
+<!-- ANCHOR: development -->
 
 ```sh
 cargo test
@@ -833,14 +891,16 @@ keystore, and archives get uploaded.
 Process groups and signal forwarding are POSIX-only, so on Windows a timed-out step is
 killed rather than asked to stop first.
 
-The schema is documented in [`docs/schema-v1.md`](docs/schema-v1.md), which also states
+The schema is documented in [`docs/schema-v1.md`](https://prongbang.github.io/shlane/schema-v1.html), which also states
 what will and will not change while shlane is on 1.x. `tests/schema_v1.rs` runs a config
 using every key in it, and fails if a key is accepted without being written down.
 
 The plan the project is being built to — gap analysis against fastlane, the action
-system, migration, milestones — is in [`docs/plan/`](docs/plan/README.md). Changes are
-recorded in [CHANGELOG.md](CHANGELOG.md).
+system, migration, milestones — is in [`docs/plan/`](https://github.com/prongbang/shlane/tree/master/docs/plan). Changes are
+recorded in [CHANGELOG.md](https://github.com/prongbang/shlane/blob/master/CHANGELOG.md).
+
+<!-- ANCHOR_END: development -->
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/prongbang/shlane/blob/master/LICENSE).

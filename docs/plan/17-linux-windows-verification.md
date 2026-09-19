@@ -48,9 +48,11 @@ Expected: `Downloading shlane <version> for x86_64-unknown-linux-gnu` (or
 **A2 — `install.sh` on Alpine (L3).** Run the same line in `alpine:3` (with
 `apk add curl`).
 
-Expected today: it picks the **gnu** build, which does not run on musl — `shlane
---version` fails with `not found` or a loader error. This is a known gap: `install.sh`
-never chooses the musl build. Record what happens; the fix belongs in `install.sh`.
+Expected: `Downloading shlane <version> for x86_64-unknown-linux-musl`, then `shlane
+<version>`. Until this checklist was first written `install.sh` always picked the
+**gnu** build, which does not run on musl; it now reads `/etc/alpine-release` and what
+`ldd --version` says. `tests/install-sh.sh` covers the choice, but nothing has run the
+installed binary on a real Alpine yet.
 
 **A3 — The musl tarball by hand (L3).**
 
@@ -68,9 +70,10 @@ dynamic executable.
 
 **A4 — `install.sh` on Windows (W1, in Git Bash).**
 
-Expected today: `no prebuilt binary for MINGW64_NT-... x86_64`. `install.sh` does not
-recognise Git Bash's `uname`, so it refuses although a Windows binary exists. Known
-gap; record the exact `uname -s` output, which is what the fix needs.
+Expected: `Downloading shlane <version> for x86_64-pc-windows-msvc`, `Installed
+~/.local/bin/shlane.exe`, then `shlane <version>`. This used to say `no prebuilt binary
+for MINGW64_NT-... x86_64`; `install.sh` now treats `MINGW*`, `MSYS*` and `CYGWIN*` as
+Windows. Record the exact `uname -s` if it still refuses.
 
 **A5 — The Windows tarball by hand (W1, in PowerShell).**
 
@@ -211,21 +214,102 @@ jobs:
         shell: bash
 ```
 
-Expected: passes on both Ubuntu runners. On `windows-latest` it fails today, for the
-same reason as A4 — the action runs `install.sh`. Record the log line; it is the same
-fix.
+Expected: passes on all three runners. CI now runs this matrix itself, in the `action`
+job, against the checked-out action; a scratch repository checks the released tag, which
+is the part CI cannot.
+
+Running it was worth more than the checklist expected: `windows-latest` failed for the
+same reason as A4, but *every* runner failed before that, and had since the action was
+written. `version: latest`, the default, reached `install.sh` as `SHLANE_VERSION=latest`
+and it asked for `shlane-latest-<target>.tar.gz`. The blanking expression,
+`inputs.version == 'latest' && '' || inputs.version`, evaluates to `latest`: `''` is
+false to GitHub, so the `||` arm wins.
 
 ## Done when
 
-- Every check passes on L1 and W1, except the known gaps (A2, A4, and H on Windows),
-  which should fail exactly as described.
+- Every check passes on L1 and W1.
 - L2 and L3 pass A, B, C and D.
-- Anything else that fails is opened as an issue with the record above, the command,
-  and its full output. D1 failing is a security bug and goes first.
+- Anything that fails is opened as an issue with the record above, the command, and its
+  full output. D1 failing is a security bug and goes first.
 
-## What the run is likely to turn into
+## What the run turned into
 
-The known gaps have one fix between them: `install.sh` has to recognise
-`MINGW*`/`MSYS*`/`CYGWIN*` and pick the Windows tarball (unpacking `shlane.exe`), and
-pick the musl build when `ldd --version` mentions musl or `/etc/alpine-release`
-exists. That also makes the GitHub Action work on Windows runners.
+The three known gaps had one fix between them, and it is in: `install.sh` recognises
+`MINGW*`/`MSYS*`/`CYGWIN*` and unpacks `shlane.exe` from the Windows tarball, and picks
+the musl build when `/etc/alpine-release` exists or `ldd --version` mentions musl.
+`tests/install-sh.sh` holds the table of what it should pick for each machine, and CI's
+`released` and `action` jobs run the script and the action for real on Ubuntu x86-64,
+Ubuntu arm64, macOS and Windows.
+
+Most of section D turned into `tests/platform-checks.sh`, which runs the lanes in
+`tests/platform/shlane.yaml` against a binary and knows what each should print. The
+`behaviour` job runs it on Ubuntu, macOS and Windows against a build of the commit
+under test, so a fix for what it finds can land in the same change; `released` installs
+the latest release on those and on Ubuntu arm64; and `alpine` runs the script inside
+`alpine:3`, which is the only place the musl build is ever executed. What that leaves
+for a person is the part CI has no machine for: a Windows box without Git for Windows
+(E2), one with WSL enabled and no distribution (E4), and Android on Windows (F).
+
+## The run
+
+```
+Machine:   L1
+OS:        Ubuntu 24.04.4 LTS (container, x86-64, glibc 2.39)
+shlane:    shlane 0.2.3 (the released x86_64-unknown-linux-gnu tarball)
+Shell:     n/a
+Results:   A1 pass, A3 pass*, B1-B4 pass, C pass, D1-D5 pass, D8 pass,
+           G pass. D6, D7 and E are Windows-only. F and H not run: see below.
+```
+
+- **A3 on L1, not L3** (`*`): the musl tarball's checksum matched, `file` says
+  `static-pie linked`, `ldd` says `statically linked`, and it ran on this glibc machine
+  — B1–B4, C and D1–D5 all pass with the musl binary too. It has still never run on
+  Alpine, which is what L3 is for.
+- **D1** printed `it's $(whoami) & "quoted"` literally, and the trace shows shlane
+  escaped it (`printf '%s\n' "it's \$(whoami) & \"quoted\""`). **D2** printed `token
+  is ***` and the value appears nowhere. **D3** failed after 2.0 s with the exact
+  message. **D4**: `sh -c sleep 10` and `sleep 10` were both running during the step and
+  neither was left afterwards. **D8**: `SIGINT` to shlane alone (not to the process
+  group, so nothing but shlane's own handling could clean up) left no `sleep` behind and
+  exited 130 with `error: interrupted while running 'sleep 10' in lane 'timeout'`.
+- **G** printed `4 lane(s), 9 action(s) converted, 0 line(s) left for you` and listed
+  `android_test`, `beta`, `deploy`, `ios_test`, matching
+  [`../fastlane-in-15-minutes.md`](../fastlane-in-15-minutes.md) line for line.
+- **F was not run**: the machine has Gradle 8.14.3 and JDK 21 but no Android SDK, and
+  its network policy blocks `dl.google.com`, so neither the SDK nor the Android Gradle
+  Plugin can be fetched. CI's `android-sample` job covers this on Linux; W1 is still
+  open.
+- **H was not run** as a scratch repository. The two CI jobs above cover the same
+  ground for the action as it stands on a branch.
+```
+Machine:   W1 (GitHub's windows-latest), L3 (alpine:3 in a container)
+shlane:    0.2.3, installed by install.sh
+Results:   W1: A4 pass, B pass, C pass, D1 pass, D2 pass, D3 FAIL, D4 n/a,
+               D6 pass, D7 pass, D8 n/a
+           L3: A2 pass, B pass, C pass, D1-D5 pass, D8 pass
+```
+
+- **D3 failed on Windows, and it was a real bug.** The step was reported as timed out
+  with the right message, and the run took the full ten seconds anyway: Windows has no
+  process group to signal, and killing the shell alone leaves what it started holding
+  the pipes shlane reads, so shlane waited for the very step it had stopped. `timeout:` did not bound
+  anything there. Fixed in `runtime::shell::stop`.
+- **D6 and D7 passed on Windows**, which is the first time the PowerShell archive
+  fallback has run anywhere: it refuses an `exclude` it cannot honour, and
+  `Compress-Archive` handles the rest.
+- **macOS reported a leftover `sleep` that was not one.** A child whose parent has been
+  killed is reparented and reaped a moment later, and until then `ps` still lists it.
+  D4 and D8 read that as a step outliving the run. They ignore a process that is already
+  dead now, and give the kernel a few seconds before calling it a leak — a real leak is
+  still caught, which is how that was checked.
+- **`install.sh` was told `403` by api.github.com on a macOS runner**, which shares its
+  address with everything else on that host. It reads the `releases/latest` redirect
+  instead now; the API is the fallback.
+- **The `action` job failed once on Windows with
+  `curl: (35) schannel: CRYPT_E_REVOCATION_OFFLINE`**, an unreachable revocation
+  server, not a download problem. `install.sh` retries twice more now, and does not
+  retry an HTTP error, since a 404 will not become a 200.
+- **L2, L3, W1, W2, W3 no longer need a person for most of it.** A, B, C and D now run
+  on Ubuntu x86-64, Ubuntu arm64, macOS, Windows and Alpine on every CI run, against the
+  released binary. What is left is E2, E4 and F on Windows, which need a machine
+  configured in a way no hosted runner is.

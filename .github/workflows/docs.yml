@@ -1,0 +1,66 @@
+# Publishes docs/site to GitHub Pages: https://prongbang.github.io/shlane/
+#
+# Pages has to be switched to "GitHub Actions" as its source in the repository
+# settings once, or the deploy step fails with a 404. CI builds the same book on
+# every pull request, so a change that breaks it is caught before it gets here.
+name: Docs
+
+on:
+  push:
+    branches: [master]
+    # The book is stubs that include these, so anything they touch changes it.
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a queued one is worth waiting for rather than
+# cancelling — the last push is the one that should end up published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  MDBOOK_VERSION: "0.5.4"
+
+jobs:
+  build:
+    name: build the book
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install mdBook
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: mdbook build docs/site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/site/book
+          # mdBook writes a `.nojekyll`, and hidden files are dropped by default.
+          include-hidden-files: true
+
+  deploy:
+    name: deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
