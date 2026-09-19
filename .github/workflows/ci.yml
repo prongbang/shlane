@@ -196,8 +196,8 @@ jobs:
           ../target/debug/shlane run deploy target=production
           ../target/debug/shlane run deploy target=staging
 
-  installer:
-    name: install.sh (${{ matrix.os }})
+  released:
+    name: the released binary (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -205,7 +205,7 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v6
-      - name: What it picks for each machine
+      - name: What install.sh picks for each machine
         if: runner.os == 'Linux'
         run: tests/install-sh.sh
       # The rest installs the latest release for real. install.sh prints the
@@ -219,6 +219,42 @@ jobs:
           dir="$INSTALL_DIR"
           if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$INSTALL_DIR")"; fi
           SHLANE_INSTALL_DIR="$dir" sh ./install.sh
+          bin="$dir/shlane"
+          [ -x "$bin" ] || bin="$bin.exe"
+          echo "SHLANE_BIN=$bin" >> "$GITHUB_ENV"
+      # Section D of docs/plan/17: quoting, masking, timeouts, interrupts and
+      # archives, against the binary a user would have downloaded. On Windows
+      # this is the only place the PowerShell archive fallback runs.
+      - name: What it does on this machine
+        shell: bash
+        run: tests/platform-checks.sh "$SHLANE_BIN"
+      - name: The example project
+        shell: bash
+        working-directory: example
+        run: |
+          "$SHLANE_BIN" validate
+          "$SHLANE_BIN" run deploy target=production
+          "$SHLANE_BIN" run deploy target=staging
+
+  alpine:
+    name: the musl binary on Alpine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # The musl build is the one nothing else runs: every other job here has
+      # a glibc loader, and a static binary that works on Ubuntu says nothing
+      # about Alpine.
+      - name: Install and check it inside alpine:3
+        run: |
+          docker run --rm -v "$PWD:/src" -w /tmp alpine:3 sh -c '
+            set -eu
+            apk add --no-cache curl tar zip unzip > /dev/null
+            SHLANE_INSTALL_DIR=/usr/local/bin sh /src/install.sh
+            /src/tests/platform-checks.sh shlane
+            cd /src/example
+            shlane validate
+            shlane run deploy target=production
+          '
 
   action:
     name: the GitHub Action (${{ matrix.os }})

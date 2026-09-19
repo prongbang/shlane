@@ -238,8 +238,16 @@ The three known gaps had one fix between them, and it is in: `install.sh` recogn
 `MINGW*`/`MSYS*`/`CYGWIN*` and unpacks `shlane.exe` from the Windows tarball, and picks
 the musl build when `/etc/alpine-release` exists or `ldd --version` mentions musl.
 `tests/install-sh.sh` holds the table of what it should pick for each machine, and CI's
-`installer` and `action` jobs run the script and the action for real on Ubuntu x86-64,
+`released` and `action` jobs run the script and the action for real on Ubuntu x86-64,
 Ubuntu arm64, macOS and Windows.
+
+Most of section D turned into `tests/platform-checks.sh`, which runs the lanes in
+`tests/platform/shlane.yaml` against a binary and knows what each should print. The
+`released` job runs it on every machine CI has, after installing the latest release,
+and the `alpine` job runs it inside `alpine:3`, which is the only place the musl build
+is ever executed. What that leaves for a person is the part CI has no machine for: a
+Windows box without Git for Windows (E2), one with WSL enabled and no distribution
+(E4), and Android on Windows (F).
 
 ## The run
 
@@ -272,6 +280,7 @@ Results:   A1 pass, A3 pass*, B1-B4 pass, C pass, D1-D5 pass, D8 pass,
   open.
 - **H was not run** as a scratch repository. The two CI jobs above cover the same
   ground for the action as it stands on a branch.
-- **L2, L3, W1, W2, W3 are still open.** The install side of L3 and W1 is now covered by
-  `tests/install-sh.sh` and the `installer` job, but nothing has executed the musl binary
-  on Alpine or any Windows binary on Windows outside `cargo test`.
+- **L2, L3, W1, W2, W3 no longer need a person for most of it.** A, B, C and D now run
+  on Ubuntu x86-64, Ubuntu arm64, macOS, Windows and Alpine on every CI run, against the
+  released binary. What is left is E2, E4 and F on Windows, which need a machine
+  configured in a way no hosted runner is.
