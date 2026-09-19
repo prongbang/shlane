@@ -28,7 +28,7 @@ These are the real risk. Everything below them is small by comparison.
 | The iOS actions | macOS, Xcode, an Apple Developer account | `build_ios`'s export, `testflight`, `keychain`, `codesign_sync` against a real app. `test_ios` and an unsigned `build_ios` archive already run in CI |
 | `appstore` | An App Store Connect key | `--dry-run` first: it reads Apple for real and prints every change without making one |
 | `play_store` | A Google Play service account | Only the request shapes are tested |
-| The Windows binary | A real Windows machine | CI runs its tests, but nobody has used it |
+| The Linux and Windows binaries | Real machines | CI runs the tests, but only the macOS arm64 binary has been run by hand. [`17`](17-linux-windows-verification.md) is the checklist |
 
 The unit tests cover what each one *builds* — the command line, the export plist, the
 JWT claims, the request bodies. None of them cover the round trip. Treat a first real
