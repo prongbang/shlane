@@ -1,0 +1,30 @@
+# The app around the Counter package, so `build_ios` has something to
+# archive. XcodeGen turns this into CounterApp.xcodeproj; the project is
+# generated rather than committed, for the same reason Package.swift exists:
+# a pbxproj is not something anyone can review. It lives in App/ because an
+# .xcodeproj next to Package.swift is what xcodebuild would pick for
+# `-scheme Counter`, and the test lane would stop finding its tests.
+name: CounterApp
+options:
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  Counter:
+    path: ..
+targets:
+  CounterApp:
+    type: application
+    platform: iOS
+    sources: [CounterApp.swift]
+    dependencies:
+      - package: Counter
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.counter
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"

@@ -4,13 +4,13 @@ Where the project stands at `0.2.0`, and what remains. Written to be picked up o
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
-actions, `cargo test` 435, and `master` is green on Linux, macOS and Windows.
+actions, `cargo test` 436, and `master` is green on Linux, macOS and Windows.
 
 ## Start here
 
 ```sh
 git pull
-cargo test                                    # 435
+cargo test                                    # 436
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
@@ -25,7 +25,7 @@ These are the real risk. Everything below them is small by comparison.
 
 | | Needs | How to check |
 |---|---|---|
-| The iOS actions | macOS, Xcode, an Apple Developer account | `build_ios`, `test_ios`, `testflight`, `keychain`, `codesign_sync` against a real app |
+| The iOS actions | macOS, Xcode, an Apple Developer account | `build_ios`'s export, `testflight`, `keychain`, `codesign_sync` against a real app. `test_ios` and an unsigned `build_ios` archive already run in CI |
 | `appstore` | An App Store Connect key | `--dry-run` first: it reads Apple for real and prints every change without making one |
 | `play_store` | A Google Play service account | Only the request shapes are tested |
 | The Windows binary | A real Windows machine | CI runs its tests, but nobody has used it |

@@ -1,0 +1,3 @@
+build/
+.build/
+App/CounterApp.xcodeproj/

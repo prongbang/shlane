@@ -39,19 +39,23 @@ const MAPPINGS: &[Mapping] = &[
     Mapping {
         fastlane: "gym",
         shlane: "build_ios",
-        renames: &[("export_method", "export_method"), ("team_id", "team_id")],
+        renames: &[
+            ("export_method", "export_method"),
+            ("team_id", "team_id"),
+            ("skip_package_ipa", "skip_export"),
+        ],
         add: &[],
     },
     Mapping {
         fastlane: "build_app",
         shlane: "build_ios",
-        renames: &[],
+        renames: &[("skip_package_ipa", "skip_export")],
         add: &[],
     },
     Mapping {
         fastlane: "build_ios_app",
         shlane: "build_ios",
-        renames: &[],
+        renames: &[("skip_package_ipa", "skip_export")],
         add: &[],
     },
     Mapping {

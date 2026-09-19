@@ -1,9 +1,11 @@
 # Run from this directory on a machine with Xcode:
 #
 #   shlane run test
+#   shlane run archive      # also needs XcodeGen (brew install xcodegen)
 #
 # This is the project the macOS CI job uses to check that test_ios really
-# produces a JUnit report from a real .xcresult.
+# produces a JUnit report from a real .xcresult, and that build_ios really
+# archives an app.
 version: 1
 
 lanes:
@@ -25,3 +27,20 @@ lanes:
     platform: ios
     steps:
       - run: xcodebuild build -scheme Counter -destination 'platform=iOS Simulator,name=iPhone 16'
+
+  archive:
+    description: "Archive the app without signing, so no Apple account is needed"
+    platform: ios
+    steps:
+      - run: xcodegen generate --quiet --spec App/project.yml
+      - id: app
+        action: build_ios
+        with:
+          project: App/CounterApp.xcodeproj
+          scheme: CounterApp
+          # Unsigned, so it stops at the archive: exporting an .ipa needs a
+          # certificate and a profile.
+          skip_export: true
+          allow_provisioning_updates: false
+          xcargs: CODE_SIGNING_ALLOWED=NO
+      - run: echo "archive at ${steps.app.archive}"

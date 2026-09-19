@@ -53,8 +53,8 @@ arguments.
 | fastlane | shlane | Arguments |
 |---|---|---|
 | `add_git_tag` | `git_tag` | `tag` → `name` |
-| `build_app` | `build_ios` |  |
-| `build_ios_app` | `build_ios` |  |
+| `build_app` | `build_ios` | `skip_package_ipa` → `skip_export` |
+| `build_ios_app` | `build_ios` | `skip_package_ipa` → `skip_export` |
 | `changelog_from_git_commits` | `changelog_from_commits` | `between` → `from`, `pretty` → `format` |
 | `create_keychain` | `keychain` | adds `action: create` |
 | `delete_keychain` | `keychain` | adds `action: delete` |
@@ -65,7 +65,7 @@ arguments.
 | `git_branch` | `git_branch` |  |
 | `git_commit` | `git_commit` | `path` → `paths` |
 | `gradle` | `gradle` |  |
-| `gym` | `build_ios` |  |
+| `gym` | `build_ios` | `skip_package_ipa` → `skip_export` |
 | `increment_build_number` | `bump_version` | adds `part: build` |
 | `increment_version_number` | `bump_version` | `bump_type` → `part` |
 | `last_git_tag` | `last_git_tag` |  |

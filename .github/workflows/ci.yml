@@ -47,7 +47,7 @@ jobs:
       - run: cargo test --all-features
 
   ios-sample:
-    name: iOS sample (real xcresult)
+    name: iOS sample (real xcresult and archive)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -74,6 +74,22 @@ jobs:
           cat build/junit.xml
           grep -q 'testStartsAtZero' build/junit.xml || { echo "the report is missing a test"; exit 1; }
           grep -q 'failures="0"' build/junit.xml || { echo "the report claims failures"; exit 1; }
+
+      - name: Install XcodeGen
+        run: command -v xcodegen >/dev/null || brew install xcodegen
+
+      # build_ios against a real app target. Unsigned, so it stops at the
+      # archive; exporting an .ipa needs an Apple account.
+      - name: Archive the sample app through shlane
+        working-directory: examples/ios-sample
+        run: ../../target/release/shlane run archive
+
+      - name: Check the archive holds the app
+        working-directory: examples/ios-sample
+        run: |
+          app=build/CounterApp.xcarchive/Products/Applications/CounterApp.app
+          test -d "$app" || { echo "no app in the archive"; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
 
       # Apple's schema is not ours, and it moves. Keeping the raw output means
       # a change can be read rather than guessed at.

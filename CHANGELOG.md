@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`build_ios` takes `skip_export`**, to stop after the archive. Without an export
+  there is no `.ipa`, so nothing needs signing. `shlane migrate` maps gym's
+  `skip_package_ipa` to it.
+- **`examples/ios-sample` has an app target now** (`App/project.yml`, generated with
+  XcodeGen), and the macOS CI job archives it with `build_ios`. Until now nothing had
+  run `build_ios` against a real Xcode.
+
 ### Removed
 
 - **The Homebrew tap.** `packaging/homebrew/` and the release job that pushed the

@@ -1910,6 +1910,31 @@ lanes:
 }
 
 #[test]
+fn build_ios_can_stop_after_the_archive() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  archive:
+    steps:
+      - action: build_ios
+        with:
+          project: MyApp.xcodeproj
+          scheme: MyApp
+          skip_export: true
+"#,
+    );
+
+    let run = sandbox.run(&["run", "archive", "--dry-run"]);
+    run.assert_code(0)
+        .assert_stdout_contains("xcodebuild archive");
+    assert!(
+        !run.stdout.contains("-exportArchive") && !run.stdout.contains("ExportOptions.plist"),
+        "skip_export still exports:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
 fn testflight_checks_its_arguments_before_anything_else() {
     let sandbox = Sandbox::new(
         "lanes:\n  a:\n    steps:\n      - action: testflight\n        with:\n          ipa: app.ipa\n",

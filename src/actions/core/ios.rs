@@ -188,6 +188,11 @@ impl Action for BuildIos {
             .default("true"),
             ArgSpec::new("upload_symbols", "Include dSYMs in the export").default("true"),
             ArgSpec::new("upload_bitcode", "Include bitcode in the export").default("false"),
+            ArgSpec::new(
+                "skip_export",
+                "Stop after the archive; no .ipa, so no signing needed",
+            )
+            .default("false"),
         ]);
         schema
     }
@@ -206,10 +211,14 @@ impl Action for BuildIos {
             args,
         );
 
+        let skip_export = args.flag("skip_export");
+
         if ctx.dry_run {
-            ctx.ui.say(&format!("Would write {}", options.display()));
             ctx.ui.say(&format!("Would run: {archive_command}"));
-            ctx.ui.say(&format!("Would run: {export_command}"));
+            if !skip_export {
+                ctx.ui.say(&format!("Would write {}", options.display()));
+                ctx.ui.say(&format!("Would run: {export_command}"));
+            }
             return Ok(ActionOutput::new().with("archive", archive.display().to_string()));
         }
 
@@ -219,14 +228,35 @@ impl Action for BuildIos {
                 format!("cannot create {}: {err}", output_dir.display()),
             )
         })?;
+        ctx.require(&archive_command)?;
+
+        let dsyms = archive.join("dSYMs");
+        let dsym = if dsyms.is_dir() {
+            dsyms.display().to_string()
+        } else {
+            String::new()
+        };
+
+        if skip_export {
+            if !archive.is_dir() {
+                return Err(ctx.error(
+                    self.name(),
+                    format!("the archive succeeded but {} is missing", archive.display()),
+                ));
+            }
+            ctx.ui.say(&format!("Archived {}", archive.display()));
+            return Ok(ActionOutput::new()
+                .with("ipa", "")
+                .with("archive", archive.display().to_string())
+                .with("dsym", dsym));
+        }
+
         fs::write(&options, export_options_plist(args)).map_err(|err| {
             ctx.error(
                 self.name(),
                 format!("cannot write {}: {err}", options.display()),
             )
         })?;
-
-        ctx.require(&archive_command)?;
         ctx.require(&export_command)?;
 
         let Some(ipa) = first_with_extension(&output_dir, "ipa") else {
@@ -241,18 +271,10 @@ impl Action for BuildIos {
 
         ctx.ui.say(&format!("Exported {}", ipa.display()));
 
-        let dsyms = archive.join("dSYMs");
         Ok(ActionOutput::new()
             .with("ipa", ipa.display().to_string())
             .with("archive", archive.display().to_string())
-            .with(
-                "dsym",
-                if dsyms.is_dir() {
-                    dsyms.display().to_string()
-                } else {
-                    String::new()
-                },
-            ))
+            .with("dsym", dsym))
     }
 }
 

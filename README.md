@@ -429,7 +429,9 @@ would be a great deal of machinery for nothing.
 **These need macOS and Xcode.** What to run is decided by functions that are tested
 here; the round trip is not. [`examples/ios-sample`](examples/ios-sample) is a small
 SwiftUI counter with unit tests that the macOS CI job runs end to end, checking that the
-JUnit report describes the real run.
+JUnit report describes the real run. The same job archives its app with `build_ios`,
+unsigned, using `skip_export: true`: that checks the archive, but not the export, which
+needs an Apple account.
 
 ### Code signing
 
