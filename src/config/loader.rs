@@ -72,17 +72,19 @@ pub fn load_file(path: &Path) -> Result<Config> {
 }
 
 pub fn parse(text: &str, path: &Path) -> Result<Config> {
-    match serde_yaml::from_str::<Config>(text) {
-        Ok(config) => Ok(config),
-        Err(err) => {
-            let location = err.location().map(|loc| (loc.line(), loc.column()));
-            Err(ShlaneError::ConfigInvalid {
-                path: path.to_path_buf(),
-                location,
-                message: err.to_string(),
-            })
+    let invalid = |err: serde_yaml::Error| {
+        let location = err.location().map(|loc| (loc.line(), loc.column()));
+        ShlaneError::ConfigInvalid {
+            path: path.to_path_buf(),
+            location,
+            message: err.to_string(),
         }
-    }
+    };
+    // Deserializing straight into a map keeps the last of two equal keys and
+    // drops the first without a word: two lanes called `test` would leave one.
+    // serde_yaml's own Value refuses duplicates, so read it that way first.
+    serde_yaml::from_str::<serde_yaml::Value>(text).map_err(invalid)?;
+    serde_yaml::from_str::<Config>(text).map_err(invalid)
 }
 
 #[cfg(test)]
@@ -91,6 +93,14 @@ mod tests {
 
     fn parse_str(text: &str) -> Result<Config> {
         parse(text, Path::new("shlane.yaml"))
+    }
+
+    #[test]
+    fn refuses_two_lanes_with_the_same_name() {
+        let err =
+            parse_str("lanes:\n  test:\n    steps: []\n  test:\n    steps:\n      - run: echo\n")
+                .expect_err("a duplicate lane must not be dropped silently");
+        assert!(err.to_string().contains("duplicate"), "{err}");
     }
 
     #[test]

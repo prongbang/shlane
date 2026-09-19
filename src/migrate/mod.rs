@@ -125,6 +125,25 @@ pub fn convert(fastfile: &str) -> Migration {
         lanes.push(lane);
     }
 
+    // fastlane scopes a lane by platform (`fastlane ios test`); shlane has one
+    // namespace, so a name used on more than one platform takes the platform.
+    let mut uses: std::collections::BTreeMap<String, usize> = Default::default();
+    for lane in &lanes {
+        *uses.entry(lane.name.clone()).or_default() += 1;
+    }
+    for lane in &mut lanes {
+        if let (Some(platform), Some(&count)) = (&lane.platform, uses.get(&lane.name)) {
+            if count > 1 {
+                let renamed = format!("{platform}_{}", lane.name);
+                migration.notes.push(format!(
+                    "`fastlane {platform} {}` is `shlane run {renamed}`: shlane lane names are not scoped by platform",
+                    lane.name
+                ));
+                lane.name = renamed;
+            }
+        }
+    }
+
     migration.lanes = lanes.len();
     migration.yaml = render(&lanes);
     migration
@@ -162,7 +181,13 @@ fn statement(line: &str, migration: &mut Migration) -> Step {
             .find(|(from, _)| *from == key)
             .map(|(_, to)| (*to).to_string())
             .unwrap_or(key);
-        converted.push((renamed, ruby::interpolate(&value)));
+        let value = ruby::interpolate(&value);
+        let value = if renamed == "destination" {
+            simulator_destination(&value)
+        } else {
+            value
+        };
+        converted.push((renamed, value));
     }
     for (key, value) in mapping.add {
         converted.push(((*key).to_string(), (*value).to_string()));
@@ -191,6 +216,24 @@ fn statement(line: &str, migration: &mut Migration) -> Step {
         name: mapping.shlane.to_string(),
         args: converted,
     }
+}
+
+/// scan's `devices: ["iPhone 16"]` names a simulator; xcodebuild wants a
+/// destination. Only the first device carries over.
+fn simulator_destination(value: &str) -> String {
+    if value.contains("platform=") {
+        return value.to_string();
+    }
+    let first = value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'');
+    format!("platform=iOS Simulator,name={first}")
 }
 
 fn render(lanes: &[Lane]) -> String {
@@ -295,6 +338,40 @@ end
         assert!(migration.yaml.contains("  beta:"), "{}", migration.yaml);
         assert!(migration.yaml.contains("  setup:"), "{}", migration.yaml);
         assert!(migration.yaml.contains("  release:"), "{}", migration.yaml);
+    }
+
+    #[test]
+    fn a_lane_name_on_two_platforms_takes_the_platform() {
+        let migration = convert(
+            "platform :ios do\n  lane :test do\n    sh \"echo ios\"\n  end\nend\nplatform :android do\n  lane :test do\n    sh \"echo android\"\n  end\n  lane :deploy do\n    sh \"echo deploy\"\n  end\nend\n",
+        );
+        let yaml = &migration.yaml;
+        assert!(yaml.contains("  ios_test:"), "{yaml}");
+        assert!(yaml.contains("  android_test:"), "{yaml}");
+        // A name used once keeps its name.
+        assert!(yaml.contains("  deploy:"), "{yaml}");
+        assert!(migration
+            .notes
+            .iter()
+            .any(|note| note.contains("shlane run ios_test")));
+    }
+
+    #[test]
+    fn scan_devices_become_a_simulator_destination() {
+        let migration = convert(
+            "lane :test do\n  scan(scheme: \"App\", devices: [\"iPhone 16\", \"iPad Air\"])\nend\n",
+        );
+        assert!(
+            migration
+                .yaml
+                .contains("destination: \"platform=iOS Simulator,name=iPhone 16\""),
+            "{}",
+            migration.yaml
+        );
+        assert_eq!(
+            simulator_destination("platform=iOS Simulator,name=iPhone 16"),
+            "platform=iOS Simulator,name=iPhone 16"
+        );
     }
 
     #[test]
