@@ -671,7 +671,7 @@ the same tables `shlane migrate` uses, and a test fails when the two differ.
 ## On CI
 
 ```yaml
-- uses: prongbang/shlane@v0.2.0
+- uses: prongbang/shlane@v0.2.1
   with:
     lane: beta
     params: target=production

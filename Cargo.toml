@@ -1,6 +1,6 @@
 [package]
 name = "shlane"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 # Raised from 1.74 by ureq (1.85), then by aes 0.9.3 (1.89). `cargo install`
 # resolves fresh rather than from the lockfile, so the number here has to be

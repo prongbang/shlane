@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-19
+
 ### Added
 
 - **`build_ios` takes `skip_export`**, to stop after the archive. Without an export
@@ -27,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ios test` and `android test`. A lane name used on more than one platform now takes
   the platform (`ios_test`, `android_test`), and the summary says how to call it.
 - **The README pointed at `prongbang/shlane@v1`**, a tag that does not exist, so a
-  workflow copied from it failed. It says `@v0.2.0` now.
+  workflow copied from it failed. It names the release tag now.
 - **scan's `devices` came out as `"[\"iPhone 16\"]"`**, which is not a destination
   `xcodebuild` accepts. It becomes `platform=iOS Simulator,name=iPhone 16`.
 
