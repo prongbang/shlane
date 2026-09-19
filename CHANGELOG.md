@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The Homebrew tap.** `packaging/homebrew/` and the release job that pushed the
+  formula are gone. `install.sh` and the release tarballs cover macOS and Linux, and
+  a second repository with its own token to keep alive was not worth it.
+
 ## [0.2.0] - 2026-09-19
 
 Everything below, from the foundations through M7. 0.1.0 was the 199-line prototype

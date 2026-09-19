@@ -34,28 +34,17 @@ The unit tests cover what each one *builds* — the command line, the export pli
 JWT claims, the request bodies. None of them cover the round trip. Treat a first real
 run as debugging, not as confirmation.
 
-## Release — the shortest path to something installable
+## Release
 
-Nothing is published and there are no tags. `cargo publish --dry-run` passes and CI
-keeps it passing.
+`v0.2.0` is tagged and on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.0):
+macOS (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with
+`SHA256SUMS`. The macOS arm64 binary and `install.sh` have been run by hand; the
+others have only been built.
 
-1. **Tag `v0.2.0` and push it.** The release workflow builds macOS (arm64, x86-64),
-   Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
-   ```sh
-   git tag -a v0.2.0 -m "shlane 0.2.0"
-   git push origin v0.2.0
-   ```
-   Watch the run before announcing anything: nothing but CI has exercised that
-   workflow end to end.
-
-2. **`cargo publish`.** Public and irreversible; a version number cannot be reused.
-   Run `cargo publish --dry-run` once more on the tagged commit first.
-
-3. **The Homebrew tap.** `packaging/homebrew/README.md` has the steps. Create
-   `prongbang/homebrew-tap` (Homebrew requires that exact name), add a token with
-   `Contents: read and write` as the `HOMEBREW_TAP_TOKEN` secret here, and the release
-   job pushes the formula. Without the secret the job says so and succeeds, so a
-   release does not go red over it.
+- **`cargo publish` has not been run.** Public and irreversible; a version number
+  cannot be reused. `cargo publish --dry-run` passes, and CI keeps it passing.
+- **There is no Homebrew tap.** It was dropped after 0.2.0; `install.sh` is the
+  macOS and Linux install.
 
 ## Actions the plan names that do not exist
 

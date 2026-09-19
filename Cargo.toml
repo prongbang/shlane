@@ -23,7 +23,6 @@ exclude = [
     "docs/plan/",
     "example/",
     "examples/",
-    "packaging/",
     "action.yml",
     "install.sh",
 ]

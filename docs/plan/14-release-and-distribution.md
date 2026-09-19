@@ -22,7 +22,7 @@ installer script, the checksums and the release notes in one go.
 |---|---|---|
 | An install script | `curl -fsSL https://shlane.dev/install.sh \| sh` | P0 |
 | GitHub Releases | download the tarball directly | P0 |
-| A Homebrew tap | `brew install prongbang/tap/shlane` | P0 |
+| ~~A Homebrew tap~~ | dropped after 0.2.0: `install.sh` covers macOS and Linux | — |
 | crates.io | `cargo install shlane` | P1 |
 | A GitHub Action | see [11](11-ci-integration.md) | P0 |
 | Docker | `ghcr.io/prongbang/shlane` | P2 |

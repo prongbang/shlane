@@ -48,7 +48,6 @@ shlane run beta
 ## Install
 
 ```sh
-brew install prongbang/tap/shlane                    # macOS and Linux
 curl -fsSL https://raw.githubusercontent.com/prongbang/shlane/master/install.sh | sh
 ```
 

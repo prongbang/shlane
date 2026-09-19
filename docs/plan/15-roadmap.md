@@ -118,7 +118,7 @@ all.
 - external-executable and Rhai-module plugins ([09](09-plugins.md))
 - `shlane migrate` and `docs/migration.md` ([12](12-migration-from-fastlane.md))
 - a `codesign_sync` that can read an existing match repo (option A)
-- the GitHub Action wrapper and the Homebrew tap
+- the GitHub Action wrapper (the Homebrew tap was dropped after 0.2.0)
   ([14](14-release-and-distribution.md))
 
 > Done: external-executable plugins (`path:` only), the SHA-256 lockfile,
@@ -130,8 +130,7 @@ all.
 > - ~~Rhai module plugins (option B)~~ ✅ done
 > - ~~a `codesign_sync` that reads an existing match repo~~ ✅ done, read-only
 > - ~~the GitHub Action wrapper~~ ✅ done (`action.yml` and `install.sh`)
-> - ~~the Homebrew tap~~ ✅ the formula and the release job are in `packaging/homebrew/`;
->   the tap repository itself has to be created by hand, and has not been
+> - ~~the Homebrew tap~~ dropped after 0.2.0; `install.sh` covers macOS and Linux
 
 ## M7 — 1.0 ⚠️ partly done
 
@@ -151,9 +150,8 @@ all.
 > it cannot regress. Nothing is published and nothing is tagged: both are public and
 > irreversible, and this branch is not merged.
 >
-> **Not done:** the documentation site. The Homebrew
-> formula is generated and pushed by the release workflow, but `prongbang/homebrew-tap`
-> does not exist yet — see `packaging/homebrew/README.md`.
+> **Not done:** the documentation site. `v0.2.0` is tagged and on GitHub Releases;
+> the Homebrew tap was dropped.
 >
 > The Windows binary is built and released now. Steps still run in a POSIX shell there —
 > the one Git for Windows ships — because the escaping applied to every substituted value
