@@ -6,8 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-19
+
 ### Changed
 
+- **The release workflow publishes to crates.io** after the GitHub Release, once a
+  `CARGO_REGISTRY_TOKEN` secret is set. It checks the tag against `Cargo.toml` first,
+  and skips a version that is already published.
 - **`shlane migrate` turns `increment_build_number` into `agvtool`**, which is what
   fastlane runs, instead of `bump_version`. `bump_version` edits `Cargo.toml`,
   `package.json`, `pubspec.yaml` or `VERSION`, and a native Xcode project has none of

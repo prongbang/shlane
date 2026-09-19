@@ -48,9 +48,14 @@ To cut the next one:
    and `docs/fastlane-in-15-minutes.md`.
 2. Rename `## [Unreleased]` in `CHANGELOG.md` to the version and date, and open a new
    empty `## [Unreleased]` above it. The release notes are that section.
-3. Commit, `git tag -a vX.Y.Z`, push both. The release workflow builds and publishes
-   the GitHub Release.
-4. `cargo publish` once the workflow is green. It cannot be undone.
+3. Commit, `git tag -a vX.Y.Z`, push both. The release workflow builds the binaries,
+   publishes the GitHub Release and then runs `cargo publish`, which cannot be undone.
+
+The crates.io step needs a `CARGO_REGISTRY_TOKEN` secret in this repository: a
+crates.io API token with the `publish-update` scope, limited to the `shlane` crate.
+Without it the job warns and succeeds, and `cargo publish` has to be run by hand. It
+refuses a tag that does not match `Cargo.toml`, and skips a version that is already on
+crates.io, so publishing by hand first does no harm.
 
 There is no Homebrew tap; it was dropped after 0.2.0.
 
@@ -70,7 +75,7 @@ Teams channel with them yet.
   `increment_build_number` now converts to `agvtool` as fastlane runs it.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
-- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.1` in the README
+- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.2` in the README
   and the guide). There is no moving `v0`/`v1` tag, so each release means updating
   both.
 - **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`
@@ -86,6 +91,11 @@ Teams channel with them yet.
   GitHub runner yet; the first run on `master` is its real check.
 
 ## Known gaps in what exists
+
+- **The release workflow's manual trigger ignores its `tag` input.** A manual run
+  builds the branch it was started on and names the files after it. The crates.io step
+  only runs for a pushed tag, so this cannot publish anything, but the input does
+  nothing.
 
 - **`zip` cannot `exclude` on Windows.** `Compress-Archive` has no exclude, so
   `src/actions/core/files.rs` refuses rather than silently dropping the argument — a

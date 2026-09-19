@@ -119,3 +119,42 @@ jobs:
             dist/SHA256SUMS
           body_path: notes.md
 
+
+  crates-io:
+    name: publish to crates.io
+    needs: publish
+    runs-on: ubuntu-latest
+    # Only for a pushed tag: a manual run builds whatever branch it was started
+    # on, and crates.io cannot take a version back.
+    if: github.ref_type == 'tag'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check the tag matches Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag v$tag does not match version $crate in Cargo.toml"
+            exit 1
+          fi
+          echo "VERSION=$crate" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN is not set, so shlane $VERSION was not published; run cargo publish by hand"
+            exit 0
+          fi
+          # Already there -- published by hand, or a re-run -- is not a failure.
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -A "shlane release (https://github.com/prongbang/shlane)" \
+            "https://crates.io/api/v1/crates/shlane/$VERSION")
+          if [ "$status" = 200 ]; then
+            echo "shlane $VERSION is already on crates.io"
+            exit 0
+          fi
+          cargo publish --locked
