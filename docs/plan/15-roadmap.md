@@ -147,11 +147,9 @@ all.
 >
 > `cargo publish --dry-run` passes, with `exclude` keeping the plan, the benchmarks and
 > the sample projects out of what a `cargo install` downloads, and CI runs the dry run so
-> it cannot regress. Nothing is published and nothing is tagged: both are public and
-> irreversible, and this branch is not merged.
+> it cannot regress. `v0.2.0` is tagged, on GitHub Releases and on crates.io.
 >
-> **Not done:** the documentation site. `v0.2.0` is tagged and on GitHub Releases;
-> the Homebrew tap was dropped.
+> **Not done:** the documentation site. The Homebrew tap was dropped.
 >
 > The Windows binary is built and released now. Steps still run in a POSIX shell there —
 > the one Git for Windows ships — because the escaping applied to every substituted value

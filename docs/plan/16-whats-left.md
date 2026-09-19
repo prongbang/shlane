@@ -41,8 +41,10 @@ macOS (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with
 `SHA256SUMS`. The macOS arm64 binary and `install.sh` have been run by hand; the
 others have only been built.
 
-- **`cargo publish` has not been run.** Public and irreversible; a version number
-  cannot be reused. `cargo publish --dry-run` passes, and CI keeps it passing.
+- **On crates.io** as [`shlane` 0.2.0](https://crates.io/crates/shlane), published
+  from the tagged commit, so `cargo install shlane` works. Its README still shows the
+  `brew install` line removed after the tag; the next version fixes that, since
+  crates.io cannot change a published version.
 - **There is no Homebrew tap.** It was dropped after 0.2.0; `install.sh` is the
   macOS and Linux install.
 
