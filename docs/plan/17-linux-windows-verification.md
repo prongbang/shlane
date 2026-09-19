@@ -214,11 +214,16 @@ jobs:
         shell: bash
 ```
 
-Expected: passes on all three runners. `windows-latest` used to fail for the same
-reason as A4 — the action runs `install.sh` — and also because the action handed bash
-the runner's native `D:\a\_temp\...` paths. CI now runs this matrix itself, in the
-`action` job, against the checked-out action; a scratch repository checks the released
-tag, which is the part CI cannot.
+Expected: passes on all three runners. CI now runs this matrix itself, in the `action`
+job, against the checked-out action; a scratch repository checks the released tag, which
+is the part CI cannot.
+
+Running it was worth more than the checklist expected: `windows-latest` failed for the
+same reason as A4, but *every* runner failed before that, and had since the action was
+written. `version: latest`, the default, reached `install.sh` as `SHLANE_VERSION=latest`
+and it asked for `shlane-latest-<target>.tar.gz`. The blanking expression,
+`inputs.version == 'latest' && '' || inputs.version`, evaluates to `latest`: `''` is
+false to GitHub, so the `||` arm wins.
 
 ## Done when
 

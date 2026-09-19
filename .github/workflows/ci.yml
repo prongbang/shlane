@@ -238,3 +238,14 @@ jobs:
           version="${{ steps.shlane.outputs.version }}"
           [ -n "$version" ] || { echo "the action reported no version"; exit 1; }
           echo "installed $version"
+      # `version:` is the input most workflows set, and it takes a different
+      # path through the action than the default `latest`.
+      - id: pinned
+        uses: ./
+        with:
+          version: 0.2.3
+      - name: It installed the version it was asked for
+        shell: bash
+        run: |
+          version="${{ steps.pinned.outputs.version }}"
+          [ "$version" = "0.2.3" ] || { echo "wanted 0.2.3, got '$version'"; exit 1; }

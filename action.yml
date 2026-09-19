@@ -39,7 +39,7 @@ runs:
       id: install
       shell: bash
       env:
-        SHLANE_VERSION: ${{ inputs.version == 'latest' && '' || inputs.version }}
+        VERSION: ${{ inputs.version }}
         INSTALL_DIR: ${{ runner.temp }}/shlane-bin
         ACTION_PATH: ${{ github.action_path }}
       run: |
@@ -48,6 +48,10 @@ runs:
         posix() {
           if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else echo "$1"; fi
         }
+        # install.sh works out the latest release when SHLANE_VERSION is unset.
+        # An expression here cannot do it: `inputs.version == 'latest' && '' ||
+        # inputs.version` is `latest`, because '' is false to GitHub.
+        [ "$VERSION" = latest ] || export SHLANE_VERSION="$VERSION"
         dir="$(posix "$INSTALL_DIR")"
         # The action's own install.sh, so the script and the action stay the
         # same version.

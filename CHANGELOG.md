@@ -31,8 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`install.sh` recognises Git Bash, MSYS2 and Cygwin** (`MINGW*`, `MSYS*`, `CYGWIN*`)
   and installs `shlane.exe` from the Windows release. It used to refuse with `no
   prebuilt binary for MINGW64_NT-10.0-... x86_64` although that binary exists.
-- **The GitHub Action works on `windows-latest`.** It failed for the same reason, and
-  it also handed bash the runner's native `D:\a\_temp\...` paths. It now converts them
+- **The GitHub Action installs anything at all.** `version: latest`, its default,
+  became `SHLANE_VERSION=latest` and the installer asked for
+  `shlane-latest-<target>.tar.gz`, which is a 404 — on every runner, since the first
+  release. The expression meant to blank it out,
+  `inputs.version == 'latest' && '' || inputs.version`, returns `latest`, because an
+  empty string is false to GitHub. CI now runs the action on Ubuntu x86-64, Ubuntu
+  arm64 and Windows, with the default and with a pinned version.
+- **The GitHub Action works on `windows-latest`.** It refused Git Bash's `uname` like
+  the installer did, and it also handed bash the runner's native `D:\a\_temp\...`
+  paths. It now converts them
   with `cygpath`, and runs the `install.sh` that ships with the action rather than
   whatever is on `master`, so the script and the action are always the same version.
 
