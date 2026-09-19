@@ -292,6 +292,22 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Result<bool> {
 
 /// Stop a step: ask its process group to quit, then insist.
 fn stop(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        // Windows has no process group to signal, and killing the shell alone
+        // is not enough: what it started inherits the pipes shlane is reading,
+        // so the joins below wait for the very step that was just stopped. A
+        // `timeout: 2s` on `sleep 10` then reported the timeout after ten
+        // seconds. taskkill takes the whole tree; it ships with Windows, and a
+        // tree that has already gone just makes it exit non-zero.
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
     #[cfg(unix)]
     {
         let group = child.id() as i32;

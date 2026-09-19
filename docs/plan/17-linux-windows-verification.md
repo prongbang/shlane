@@ -243,11 +243,12 @@ Ubuntu arm64, macOS and Windows.
 
 Most of section D turned into `tests/platform-checks.sh`, which runs the lanes in
 `tests/platform/shlane.yaml` against a binary and knows what each should print. The
-`released` job runs it on every machine CI has, after installing the latest release,
-and the `alpine` job runs it inside `alpine:3`, which is the only place the musl build
-is ever executed. What that leaves for a person is the part CI has no machine for: a
-Windows box without Git for Windows (E2), one with WSL enabled and no distribution
-(E4), and Android on Windows (F).
+`behaviour` job runs it on Ubuntu, macOS and Windows against a build of the commit
+under test, so a fix for what it finds can land in the same change; `released` installs
+the latest release on those and on Ubuntu arm64; and `alpine` runs the script inside
+`alpine:3`, which is the only place the musl build is ever executed. What that leaves
+for a person is the part CI has no machine for: a Windows box without Git for Windows
+(E2), one with WSL enabled and no distribution (E4), and Android on Windows (F).
 
 ## The run
 
@@ -280,6 +281,26 @@ Results:   A1 pass, A3 pass*, B1-B4 pass, C pass, D1-D5 pass, D8 pass,
   open.
 - **H was not run** as a scratch repository. The two CI jobs above cover the same
   ground for the action as it stands on a branch.
+```
+Machine:   W1 (GitHub's windows-latest), L3 (alpine:3 in a container)
+shlane:    0.2.3, installed by install.sh
+Results:   W1: A4 pass, B pass, C pass, D1 pass, D2 pass, D3 FAIL, D4 n/a,
+               D6 pass, D7 pass, D8 n/a
+           L3: A2 pass, B pass, C pass, D1-D5 pass, D8 pass
+```
+
+- **D3 failed on Windows, and it was a real bug.** The step was reported as timed out
+  with the right message, and the run took the full ten seconds anyway: Windows has no
+  process group to signal, and killing the shell alone leaves what it started holding
+  the pipes shlane reads, so shlane waited for the very step it had stopped. `timeout:` did not bound
+  anything there. Fixed in `runtime::shell::stop`.
+- **D6 and D7 passed on Windows**, which is the first time the PowerShell archive
+  fallback has run anywhere: it refuses an `exclude` it cannot honour, and
+  `Compress-Archive` handles the rest.
+- **The `action` job failed once on Windows with
+  `curl: (35) schannel: CRYPT_E_REVOCATION_OFFLINE`**, an unreachable revocation
+  server, not a download problem. `install.sh` retries twice more now, and does not
+  retry an HTTP error, since a 404 will not become a 200.
 - **L2, L3, W1, W2, W3 no longer need a person for most of it.** A, B, C and D now run
   on Ubuntu x86-64, Ubuntu arm64, macOS, Windows and Alpine on every CI run, against the
   released binary. What is left is E2, E4 and F on Windows, which need a machine

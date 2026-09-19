@@ -64,6 +64,26 @@ target() {
     esac
 }
 
+# Git for Windows' curl checks certificate revocation and gives up with
+# CRYPT_E_REVOCATION_OFFLINE when it cannot reach the server that answers for
+# it -- which happens, and has nothing to do with the download. That and an
+# ordinary dropped connection are worth another go. Retrying in the script
+# rather than with --retry-all-errors keeps it working with an older curl.
+fetch() {
+    attempt=1
+    while :; do
+        curl -fsSL "$1" -o "$2" && return 0
+        code=$?
+        # 22 is "the server answered, and said no". A 404 will not become a
+        # 200, so there is nothing to wait for.
+        if [ "$code" -eq 22 ] || [ "$attempt" -ge 3 ]; then
+            return "$code"
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+}
+
 checksum() {
     if command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$1" | cut -d' ' -f1
@@ -81,13 +101,16 @@ if [ -n "${SHLANE_INSTALL_SH_SOURCED:-}" ]; then
 fi
 
 TARGET="$(target)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 
 if [ -n "${SHLANE_VERSION:-}" ]; then
     VERSION="${SHLANE_VERSION#v}"
 else
     need sed
-    VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -n 1)"
+    fetch "https://api.github.com/repos/$REPO/releases/latest" "$TMP/latest.json" \
+        || fail "could not reach GitHub to work out the latest version; set SHLANE_VERSION"
+    VERSION="$(sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' "$TMP/latest.json" | head -n 1)"
     [ -n "$VERSION" ] || fail "could not work out the latest version; set SHLANE_VERSION"
 fi
 
@@ -97,13 +120,11 @@ case "$TARGET" in
     *-windows-*) BIN="shlane.exe" ;;
     *)           BIN="shlane" ;;
 esac
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 
 echo "Downloading shlane ${VERSION} for ${TARGET}"
-curl -fsSL "$BASE/${NAME}.tar.gz" -o "$TMP/${NAME}.tar.gz" \
+fetch "$BASE/${NAME}.tar.gz" "$TMP/${NAME}.tar.gz" \
     || fail "could not download ${NAME}.tar.gz"
-curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS" \
+fetch "$BASE/SHA256SUMS" "$TMP/SHA256SUMS" \
     || fail "could not download SHA256SUMS; refusing to install unverified"
 
 expected="$(grep " ${NAME}.tar.gz\$" "$TMP/SHA256SUMS" | cut -d' ' -f1)"

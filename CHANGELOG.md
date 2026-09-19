@@ -25,6 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/schema-v1.md` and `CHANGELOG.md` resolved against whatever page they were
   rendered on, so every one of them was broken on crates.io. They are absolute now,
   pointing at the documentation site for prose and at GitHub for repository files.
+- **`timeout:` did not stop a step on Windows.** It was reported as stopped, with the
+  right message, and the lane took as long as the step would have anyway: Windows has
+  no process group to signal, and killing the shell leaves what it started holding the
+  pipes shlane reads, so shlane went on waiting for the step it had just stopped. The
+  whole tree is taken now. On a 2 s timeout over a 10 s step, the lane took 10 s and
+  now takes 2 s.
+- **`install.sh` retries a download that failed for a reason that can change.** Git for
+  Windows' curl gives up with `CRYPT_E_REVOCATION_OFFLINE` when it cannot reach the
+  server that answers for certificate revocation, which has nothing to do with the
+  file being fetched. It tries three times, and does not retry an HTTP error: a 404
+  will not become a 200.
 - **`install.sh` picks the musl build on Alpine** and anywhere else `ldd` reports musl,
   instead of the glibc one, which does not run there. On aarch64, where there is no musl
   release yet, it says so rather than installing a binary that cannot start.
