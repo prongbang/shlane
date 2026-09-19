@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`shlane migrate` turns `increment_build_number` into `agvtool`**, which is what
+  fastlane runs, instead of `bump_version`. `bump_version` edits `Cargo.toml`,
+  `package.json`, `pubspec.yaml` or `VERSION`, and a native Xcode project has none of
+  them, so the converted lane failed. `build_number:` becomes `agvtool new-version -all
+  <n>`, `xcodeproj:` runs it in that project's directory, and a Ruby expression is left
+  for a person.
+
 ## [0.2.1] - 2026-09-19
 
 ### Added

@@ -117,12 +117,6 @@ const MAPPINGS: &[Mapping] = &[
         add: &[],
     },
     Mapping {
-        fastlane: "increment_build_number",
-        shlane: "bump_version",
-        renames: &[],
-        add: &[("part", "build")],
-    },
-    Mapping {
         fastlane: "increment_version_number",
         shlane: "bump_version",
         renames: &[("bump_type", "part")],

@@ -159,6 +159,10 @@ fn statement(line: &str, migration: &mut Migration) -> Step {
         return Step::Manual(line.to_string());
     };
 
+    if name == "increment_build_number" {
+        return increment_build_number(line, &args, migration);
+    }
+
     if let Some(reason) = mapping::unsupported(&name) {
         migration.manual += 1;
         migration.notes.push(format!("`{name}`: {reason}"));
@@ -216,6 +220,49 @@ fn statement(line: &str, migration: &mut Migration) -> Step {
         name: mapping.shlane.to_string(),
         args: converted,
     }
+}
+
+/// What fastlane's increment_build_number runs: Apple's agvtool, in the
+/// directory that holds the project. Not `bump_version`, which edits
+/// Cargo.toml, package.json, pubspec.yaml or VERSION -- none of which a
+/// native Xcode project has.
+fn increment_build_number(
+    line: &str,
+    args: &[(String, String)],
+    migration: &mut Migration,
+) -> Step {
+    let mut command = match args.iter().find(|(key, _)| key == "build_number") {
+        None => "agvtool next-version -all".to_string(),
+        Some((_, value)) => {
+            let value = ruby::interpolate(value);
+            // A number or a `${...}` reference carries over; Ruby arithmetic
+            // such as `latest_testflight_build_number + 1` does not.
+            if value.is_empty()
+                || !value
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-${}".contains(c))
+            {
+                migration.manual += 1;
+                migration.notes.push(
+                    "`increment_build_number`: `build_number` is Ruby; work the number out in a step, then `agvtool new-version -all <number>`".to_string(),
+                );
+                return Step::Manual(line.to_string());
+            }
+            format!("agvtool new-version -all {value}")
+        }
+    };
+
+    if let Some((_, project)) = args.iter().find(|(key, _)| key == "xcodeproj") {
+        let dir = std::path::Path::new(project)
+            .parent()
+            .unwrap_or(std::path::Path::new(""));
+        if !dir.as_os_str().is_empty() {
+            command = format!("cd '{}' && {command}", dir.display());
+        }
+    }
+
+    migration.actions += 1;
+    Step::Run(command)
 }
 
 /// scan's `devices: ["iPhone 16"]` names a simulator; xcodebuild wants a
@@ -357,6 +404,38 @@ end
     }
 
     #[test]
+    fn increment_build_number_is_agvtool() {
+        let yaml = |fastfile: &str| convert(fastfile).yaml;
+        assert!(yaml("lane :a do\n  increment_build_number\nend\n")
+            .contains("- run: \"agvtool next-version -all\""));
+        assert!(
+            yaml("lane :a do\n  increment_build_number(build_number: \"42\")\nend\n")
+                .contains("- run: \"agvtool new-version -all 42\"")
+        );
+        assert!(
+            yaml("lane :a do\n  increment_build_number(build_number: ENV[\"BUILD\"])\nend\n")
+                .contains("- run: \"agvtool new-version -all ${BUILD}\"")
+        );
+        assert!(yaml(
+            "lane :a do\n  increment_build_number(xcodeproj: \"ios/Runner.xcodeproj\")\nend\n"
+        )
+        .contains("- run: \"cd 'ios' && agvtool next-version -all\""));
+
+        let migration = convert(
+            "lane :a do\n  increment_build_number(build_number: latest_testflight_build_number + 1)\nend\n",
+        );
+        assert!(
+            migration.yaml.contains("# TODO: migrate by hand"),
+            "{}",
+            migration.yaml
+        );
+        assert!(migration
+            .notes
+            .iter()
+            .any(|note| note.contains("agvtool new-version")));
+    }
+
+    #[test]
     fn scan_devices_become_a_simulator_destination() {
         let migration = convert(
             "lane :test do\n  scan(scheme: \"App\", devices: [\"iPhone 16\", \"iPad Air\"])\nend\n",
@@ -392,9 +471,11 @@ end
         assert!(yaml.contains("- action: build_ios"), "{yaml}");
         assert!(yaml.contains("scheme: \"MyApp\""), "{yaml}");
         assert!(yaml.contains("- action: testflight"), "{yaml}");
-        // increment_build_number carries the part fastlane implied
-        assert!(yaml.contains("- action: bump_version"), "{yaml}");
-        assert!(yaml.contains("part: \"build\""), "{yaml}");
+        // increment_build_number is agvtool, as it is in fastlane
+        assert!(
+            yaml.contains("- run: \"agvtool next-version -all\""),
+            "{yaml}"
+        );
     }
 
     #[test]

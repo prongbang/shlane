@@ -42,6 +42,7 @@ different name, `shlane validate` reports it.
 |---|---|
 | `sh "..."` | a `run:` step |
 | `lane_context[SharedValues::X]` | `${steps.<id>.<output>}` |
+| `increment_build_number` | `run: agvtool next-version -all`, which is what fastlane runs; `build_number:` becomes `agvtool new-version -all <n>` |
 | `Appfile` | the step's own arguments; `migrate` leaves a `TODO-<name>` for each |
 | fastlane's `.env` files | `env_files:` |
 | a plugin | a shlane plugin, or `http_request` for a webhook |
@@ -69,7 +70,6 @@ arguments.
 | `git_commit` | `git_commit` | `path` → `paths` |
 | `gradle` | `gradle` |  |
 | `gym` | `build_ios` | `skip_package_ipa` → `skip_export` |
-| `increment_build_number` | `bump_version` | adds `part: build` |
 | `increment_version_number` | `bump_version` | `bump_type` → `part` |
 | `last_git_tag` | `last_git_tag` |  |
 | `pilot` | `testflight` |  |

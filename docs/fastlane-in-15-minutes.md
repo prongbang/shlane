@@ -95,8 +95,10 @@ of these:
 | an argument `validate` rejects | shlane has no such option, or calls it something else. `shlane action show <action>` lists what it takes |
 | a value one step produced and another used (`lane_context`) | give the first step an `id:` and use `${steps.<id>.<output>}` |
 | `options[:x]` became `${x}` | declare it under `params:` with a default, or pass `x=value` on the command line |
-| `increment_build_number` on a native Xcode project | `bump_version` reads `Cargo.toml`, `package.json`, `pubspec.yaml` or `VERSION`, so it suits Flutter but not Xcode. Use `run: agvtool next-version -all`, as fastlane does |
 | `gradle(task: "bundle", build_type: "Release")` | `build_android`, which also reports where the bundle landed |
+
+`increment_build_number` needs nothing from you: it becomes `run: agvtool next-version
+-all`, which is what fastlane runs.
 
 For the Fastfile above, `beta` and `deploy` end up like this:
 
