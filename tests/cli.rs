@@ -1691,7 +1691,20 @@ lanes:
 #[cfg(unix)]
 #[test]
 fn sign_android_removes_the_aligned_intermediate() {
-    let sandbox = Sandbox::new("lanes: {}\n");
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  sign:
+    steps:
+      - action: sign_android
+        with:
+          input: app-release-unsigned.apk
+          output: app-release.apk
+          keystore: release.jks
+          keystore_password: pw
+          key_alias: release
+"#,
+    );
     // Stand-ins for the build tools: zipalign copies, apksigner writes --out.
     sandbox.write(
         "sdk/build-tools/35.0.0/zipalign",
@@ -1708,28 +1721,15 @@ fn sign_android_removes_the_aligned_intermediate() {
     }
     sandbox.write("app-release-unsigned.apk", "apk");
     sandbox.write("release.jks", "keystore");
-    sandbox.write(
-        "shlane.yaml",
-        &format!(
-            r#"
-env:
-  ANDROID_HOME: {}
-lanes:
-  sign:
-    steps:
-      - action: sign_android
-        with:
-          input: app-release-unsigned.apk
-          output: app-release.apk
-          keystore: release.jks
-          keystore_password: pw
-          key_alias: release
-"#,
-            sandbox.path().join("sdk").display()
-        ),
-    );
-
-    sandbox.run(&["run", "sign"]).assert_code(0);
+    // Through the process environment, which outranks a config's `env:`: a CI
+    // runner with the Android SDK already has ANDROID_HOME set.
+    let sdk = sandbox.path().join("sdk");
+    sandbox
+        .run_with_env(
+            &["run", "sign"],
+            &[("ANDROID_HOME", &sdk.display().to_string())],
+        )
+        .assert_code(0);
     assert!(sandbox.path().join("app-release.apk").is_file());
     assert!(
         !sandbox

@@ -321,7 +321,10 @@ mod tests {
             "<!-- BEGIN GENERATED: cargo test updates this, do not edit by hand -->\n";
         const END: &str = "<!-- END GENERATED -->";
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/migration.md");
-        let doc = std::fs::read_to_string(&path).expect("docs/migration.md exists");
+        // A Windows checkout may have turned every `\n` into `\r\n`.
+        let doc = std::fs::read_to_string(&path)
+            .expect("docs/migration.md exists")
+            .replace("\r\n", "\n");
         let start = doc.find(BEGIN).expect("begin marker") + BEGIN.len();
         let end = doc.find(END).expect("end marker");
         let expected = format!("\n{}\n", markdown_table());
