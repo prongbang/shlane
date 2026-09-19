@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pipes shlane reads, so shlane went on waiting for the step it had just stopped. The
   whole tree is taken now. On a 2 s timeout over a 10 s step, the lane took 10 s and
   now takes 2 s.
+- **`install.sh` no longer asks api.github.com which version is latest.**
+  `releases/latest` redirects to the tag, which needs no token and is not rate limited;
+  the API is, per address, so an office or a CI runner that shares one could be told
+  `403` without having asked for anything. The API is still the fallback.
 - **`install.sh` retries a download that failed for a reason that can change.** Git for
   Windows' curl gives up with `CRYPT_E_REVOCATION_OFFLINE` when it cannot reach the
   server that answers for certificate revocation, which has nothing to do with the

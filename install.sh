@@ -84,6 +84,32 @@ fetch() {
     done
 }
 
+# The version of the latest release.
+#
+# `releases/latest` redirects to the tag, which needs no token and is not rate
+# limited; api.github.com is, and a shared address -- a CI runner, an office --
+# reaches that limit without having asked for anything. The API is still the
+# fallback, since only it works for a repository whose latest release is not
+# the redirect target.
+latest() {
+    url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        "https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
+    case "$url" in
+        */releases/tag/v*)
+            echo "${url##*/releases/tag/v}"
+            return 0
+            ;;
+        */releases/tag/?*)
+            echo "${url##*/releases/tag/}"
+            return 0
+            ;;
+    esac
+
+    need sed
+    fetch "https://api.github.com/repos/$REPO/releases/latest" "$TMP/latest.json" || return 1
+    sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' "$TMP/latest.json" | head -n 1
+}
+
 checksum() {
     if command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$1" | cut -d' ' -f1
@@ -107,10 +133,7 @@ trap 'rm -rf "$TMP"' EXIT
 if [ -n "${SHLANE_VERSION:-}" ]; then
     VERSION="${SHLANE_VERSION#v}"
 else
-    need sed
-    fetch "https://api.github.com/repos/$REPO/releases/latest" "$TMP/latest.json" \
-        || fail "could not reach GitHub to work out the latest version; set SHLANE_VERSION"
-    VERSION="$(sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' "$TMP/latest.json" | head -n 1)"
+    VERSION="$(latest || true)"
     [ -n "$VERSION" ] || fail "could not work out the latest version; set SHLANE_VERSION"
 fi
 

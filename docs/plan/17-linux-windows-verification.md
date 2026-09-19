@@ -297,6 +297,14 @@ Results:   W1: A4 pass, B pass, C pass, D1 pass, D2 pass, D3 FAIL, D4 n/a,
 - **D6 and D7 passed on Windows**, which is the first time the PowerShell archive
   fallback has run anywhere: it refuses an `exclude` it cannot honour, and
   `Compress-Archive` handles the rest.
+- **macOS reported a leftover `sleep` that was not one.** A child whose parent has been
+  killed is reparented and reaped a moment later, and until then `ps` still lists it.
+  D4 and D8 read that as a step outliving the run. They ignore a process that is already
+  dead now, and give the kernel a few seconds before calling it a leak — a real leak is
+  still caught, which is how that was checked.
+- **`install.sh` was told `403` by api.github.com on a macOS runner**, which shares its
+  address with everything else on that host. It reads the `releases/latest` redirect
+  instead now; the API is the fallback.
 - **The `action` job failed once on Windows with
   `curl: (35) schannel: CRYPT_E_REVOCATION_OFFLINE`**, an unreachable revocation
   server, not a download problem. `install.sh` retries twice more now, and does not

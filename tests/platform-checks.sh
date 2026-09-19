@@ -46,6 +46,27 @@ fail() {
 
 holds() { echo "$out" | grep -qF "$1"; }
 
+# A `sleep 10` that is still running, ignoring this pipeline's own greps and
+# anything already dead: a child whose parent was killed is reparented and
+# reaped a moment later, and until then it is still listed.
+leftover() {
+    ps -e -o stat= -o args= 2>/dev/null |
+        grep -F 'sleep 10' |
+        grep -v grep |
+        grep -v '^ *Z'
+}
+
+# Reaping is not instant, so give it a moment before calling it a leak.
+leftover_settled() {
+    waited=0
+    while [ "$waited" -lt 5 ]; do
+        [ -z "$(leftover)" ] && return 1
+        waited=$((waited + 1))
+        sleep 1
+    done
+    [ -n "$(leftover)" ]
+}
+
 # D1. A parameter must reach the shell as text, never as something it can run.
 lane quoting
 if [ "$status" -ne 0 ]; then
@@ -81,9 +102,9 @@ else
 fi
 
 # D4. And nothing of it is left behind.
-if ps -e -o args= >/dev/null 2>&1; then
-    if ps -e -o args= | grep -F 'sleep 10' | grep -qv grep; then
-        out="$(ps -e -o args= | grep -F 'sleep 10' | grep -v grep)"
+if ps -e -o stat= -o args= >/dev/null 2>&1; then
+    if leftover_settled; then
+        out="$(leftover)"
         fail D4 "a 'sleep 10' outlived the run"
     else
         pass "D4 the stopped step left nothing running"
@@ -141,7 +162,8 @@ if [ "$(uname -s)" = Linux ] || [ "$(uname -s)" = Darwin ]; then
         fail D8 "it exited $status rather than 130"
     elif ! holds "interrupted while running"; then
         fail D8 "it did not say it was interrupted"
-    elif ps -e -o args= | grep -F 'sleep 10' | grep -qv grep; then
+    elif leftover_settled; then
+        out="$(leftover)"
         fail D8 "a 'sleep 10' outlived the interrupt"
     else
         pass "D8 an interrupt stops the step too"
