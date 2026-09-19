@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-19
+
+### Changed
+
+- **The release workflow checks the tag against `Cargo.toml` before it builds
+  anything.** The first `v0.2.2` was tagged ahead of the version bump and published
+  binaries named 0.2.2 that reported 0.2.1. There is no change to shlane itself.
+
 ## [0.2.2] - 2026-09-19
 
 ### Changed

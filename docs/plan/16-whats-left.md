@@ -76,7 +76,7 @@ Teams channel with them yet.
   `increment_build_number` now converts to `agvtool` as fastlane runs it.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
-- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.2` in the README
+- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.3` in the README
   and the guide). There is no moving `v0`/`v1` tag, so each release means updating
   both.
 - **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`
