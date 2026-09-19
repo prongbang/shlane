@@ -147,7 +147,7 @@ all.
 >
 > `cargo publish --dry-run` passes, with `exclude` keeping the plan, the benchmarks and
 > the sample projects out of what a `cargo install` downloads, and CI runs the dry run so
-> it cannot regress. `v0.2.0` is tagged, on GitHub Releases and on crates.io.
+> it cannot regress. `v0.2.1` is the latest tag, on GitHub Releases and on crates.io.
 >
 > **Not done:** the documentation site. The Homebrew tap was dropped.
 >

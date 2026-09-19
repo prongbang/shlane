@@ -1,6 +1,6 @@
 # 16 — What is left
 
-Where the project stands at `0.2.0`, and what remains. Written to be picked up on
+Where the project stands at `0.2.1`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
@@ -36,17 +36,23 @@ run as debugging, not as confirmation.
 
 ## Release
 
-`v0.2.0` is tagged and on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.0):
-macOS (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with
-`SHA256SUMS`. The macOS arm64 binary and `install.sh` have been run by hand; the
-others have only been built.
+`v0.2.1` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.1)
+and [crates.io](https://crates.io/crates/shlane), both from the tagged commit: macOS
+(arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
+The macOS arm64 binary and `install.sh` have been run by hand; the others have only
+been built.
 
-- **On crates.io** as [`shlane` 0.2.0](https://crates.io/crates/shlane), published
-  from the tagged commit, so `cargo install shlane` works. Its README still shows the
-  `brew install` line removed after the tag; the next version fixes that, since
-  crates.io cannot change a published version.
-- **There is no Homebrew tap.** It was dropped after 0.2.0; `install.sh` is the
-  macOS and Linux install.
+To cut the next one:
+
+1. Bump `version` in `Cargo.toml`, and the `prongbang/shlane@vX.Y.Z` tag in `README.md`
+   and `docs/fastlane-in-15-minutes.md`.
+2. Rename `## [Unreleased]` in `CHANGELOG.md` to the version and date, and open a new
+   empty `## [Unreleased]` above it. The release notes are that section.
+3. Commit, `git tag -a vX.Y.Z`, push both. The release workflow builds and publishes
+   the GitHub Release.
+4. `cargo publish` once the workflow is green. It cannot be undone.
+
+There is no Homebrew tap; it was dropped after 0.2.0.
 
 ## Actions the plan names that do not exist
 
@@ -65,7 +71,7 @@ Teams channel with them yet.
   native Xcode project; the guide says to use `agvtool` there.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
-- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.0` in the README
+- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.1` in the README
   and the guide). There is no moving `v0`/`v1` tag, so each release means updating
   both.
 - **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`
