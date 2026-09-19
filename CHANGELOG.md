@@ -6,7 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.2.0] - 2026-09-19
+
+Everything below, from the foundations through M7. 0.1.0 was the 199-line prototype
+this replaced; it was never published to crates.io, so this is the first release
+anyone can install.
+
+### Added before tagging
 
 - **`notify_discord` and `notify_teams`**, the two notifications the plan named that did
   not exist. Both mask the webhook URL like `notify_slack` does. Teams gets an Adaptive
@@ -24,14 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A nightly CI run** (03:17 UTC), so both sample projects build against current
   toolchains even on days nobody pushes.
 
-### Changed
+### Changed before tagging
 
 - **`shlane migrate` points `match`, `sigh` and `cert` at `codesign_sync`,
   `provisioning_profile` and `certificate`** instead of saying there is no equivalent.
   They are still left for a person to move, because the fastlane actions can create
   certificates and profiles and the shlane ones only read existing ones.
 
-### Fixed
+### Fixed before tagging
 
 - **`sign_android` left a `*.aligned.apk` behind** next to every APK it signed. The
   zipaligned copy is an intermediate; it is removed now whether signing succeeds or
@@ -59,12 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#[cfg(unix)]` test, so its module was empty there and `use super::*` became unused,
   which `-D warnings` makes fatal. It has a test that runs everywhere now. The original
   cross-check missed it because it ran without `RUSTFLAGS`.
-
-## [0.2.0] - 2026-09-18
-
-Everything below, from the foundations through M7. 0.1.0 was the 199-line prototype
-this replaced; it was never published to crates.io, so this is the first release
-anyone can install.
 
 ### Added since the milestones above were written
 
