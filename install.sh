@@ -23,15 +23,43 @@ need() {
 need curl
 need tar
 
+# musl or glibc. Alpine says so in a file; everywhere else, ask the loader --
+# musl's ldd writes its banner to stderr and exits non-zero, so keep both.
+libc() {
+    if [ -f /etc/alpine-release ]; then
+        echo musl
+    elif (ldd --version) 2>&1 | grep -qi musl; then
+        echo musl
+    else
+        echo gnu
+    fi
+}
+
 target() {
     os="$(uname -s)"
     arch="$(uname -m)"
+    # Git Bash, MSYS2 and Cygwin all run on Windows and all name themselves
+    # something else: MINGW64_NT-10.0-22631, MSYS_NT-10.0, CYGWIN_NT-10.0.
+    case "$os" in
+        MINGW*|MSYS*|CYGWIN*) os="Windows" ;;
+    esac
     case "$os $arch" in
-        "Darwin arm64")  echo "aarch64-apple-darwin" ;;
-        "Darwin x86_64") echo "x86_64-apple-darwin" ;;
-        "Linux x86_64")  echo "x86_64-unknown-linux-gnu" ;;
-        "Linux aarch64") echo "aarch64-unknown-linux-gnu" ;;
-        "Linux arm64")   echo "aarch64-unknown-linux-gnu" ;;
+        "Darwin arm64")   echo "aarch64-apple-darwin" ;;
+        "Darwin x86_64")  echo "x86_64-apple-darwin" ;;
+        "Windows x86_64") echo "x86_64-pc-windows-msvc" ;;
+        "Linux x86_64")
+            if [ "$(libc)" = musl ]; then
+                echo "x86_64-unknown-linux-musl"
+            else
+                echo "x86_64-unknown-linux-gnu"
+            fi
+            ;;
+        "Linux aarch64" | "Linux arm64")
+            if [ "$(libc)" = musl ]; then
+                fail "there is no aarch64 musl build yet; build from source with: cargo install --git https://github.com/$REPO"
+            fi
+            echo "aarch64-unknown-linux-gnu"
+            ;;
         *) fail "no prebuilt binary for $os $arch; build from source with: cargo install --git https://github.com/$REPO" ;;
     esac
 }
@@ -46,6 +74,12 @@ checksum() {
     fi
 }
 
+# tests/install-sh.sh sources this file to check target() on its own, without
+# downloading anything.
+if [ -n "${SHLANE_INSTALL_SH_SOURCED:-}" ]; then
+    return 0
+fi
+
 TARGET="$(target)"
 
 if [ -n "${SHLANE_VERSION:-}" ]; then
@@ -59,6 +93,10 @@ fi
 
 NAME="shlane-${VERSION}-${TARGET}"
 BASE="https://github.com/$REPO/releases/download/v${VERSION}"
+case "$TARGET" in
+    *-windows-*) BIN="shlane.exe" ;;
+    *)           BIN="shlane" ;;
+esac
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -76,12 +114,12 @@ actual="$(checksum "$TMP/${NAME}.tar.gz")"
 
 tar -C "$TMP" -xzf "$TMP/${NAME}.tar.gz"
 mkdir -p "$INSTALL_DIR"
-install -m 755 "$TMP/${NAME}/shlane" "$INSTALL_DIR/shlane" 2>/dev/null \
-    || { cp "$TMP/${NAME}/shlane" "$INSTALL_DIR/shlane" && chmod 755 "$INSTALL_DIR/shlane"; }
+install -m 755 "$TMP/${NAME}/${BIN}" "$INSTALL_DIR/${BIN}" 2>/dev/null \
+    || { cp "$TMP/${NAME}/${BIN}" "$INSTALL_DIR/${BIN}" && chmod 755 "$INSTALL_DIR/${BIN}"; }
 
-echo "Installed $INSTALL_DIR/shlane"
+echo "Installed $INSTALL_DIR/${BIN}"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *) echo "Add it to your PATH:  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
-"$INSTALL_DIR/shlane" --version
+"$INSTALL_DIR/${BIN}" --version

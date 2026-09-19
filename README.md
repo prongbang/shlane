@@ -68,8 +68,9 @@ cargo install --path .
 ```
 
 Prebuilt binaries cover macOS (Apple Silicon and Intel), Linux (x86-64, arm64, musl)
-and Windows (x86-64). On Windows, steps run in the POSIX shell that comes with Git for
-Windows — see [Development](https://prongbang.github.io/shlane/development.html) for why.
+and Windows (x86-64). The installer picks the musl build on Alpine and the Windows one
+when it is run from Git Bash, MSYS2 or Cygwin. On Windows, steps run in the POSIX shell
+that comes with Git for Windows — see [Development](https://prongbang.github.io/shlane/development.html) for why.
 
 <!-- ANCHOR_END: install -->
 

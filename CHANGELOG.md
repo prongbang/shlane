@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/schema-v1.md` and `CHANGELOG.md` resolved against whatever page they were
   rendered on, so every one of them was broken on crates.io. They are absolute now,
   pointing at the documentation site for prose and at GitHub for repository files.
+- **`install.sh` picks the musl build on Alpine** and anywhere else `ldd` reports musl,
+  instead of the glibc one, which does not run there. On aarch64, where there is no musl
+  release yet, it says so rather than installing a binary that cannot start.
+- **`install.sh` recognises Git Bash, MSYS2 and Cygwin** (`MINGW*`, `MSYS*`, `CYGWIN*`)
+  and installs `shlane.exe` from the Windows release. It used to refuse with `no
+  prebuilt binary for MINGW64_NT-10.0-... x86_64` although that binary exists.
+- **The GitHub Action works on `windows-latest`.** It failed for the same reason, and
+  it also handed bash the runner's native `D:\a\_temp\...` paths. It now converts them
+  with `cygpath`, and runs the `install.sh` that ships with the action rather than
+  whatever is on `master`, so the script and the action are always the same version.
 
 ## [0.2.3] - 2026-09-19
 

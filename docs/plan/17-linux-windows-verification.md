@@ -48,9 +48,11 @@ Expected: `Downloading shlane <version> for x86_64-unknown-linux-gnu` (or
 **A2 — `install.sh` on Alpine (L3).** Run the same line in `alpine:3` (with
 `apk add curl`).
 
-Expected today: it picks the **gnu** build, which does not run on musl — `shlane
---version` fails with `not found` or a loader error. This is a known gap: `install.sh`
-never chooses the musl build. Record what happens; the fix belongs in `install.sh`.
+Expected: `Downloading shlane <version> for x86_64-unknown-linux-musl`, then `shlane
+<version>`. Until this checklist was first written `install.sh` always picked the
+**gnu** build, which does not run on musl; it now reads `/etc/alpine-release` and what
+`ldd --version` says. `tests/install-sh.sh` covers the choice, but nothing has run the
+installed binary on a real Alpine yet.
 
 **A3 — The musl tarball by hand (L3).**
 
@@ -68,9 +70,10 @@ dynamic executable.
 
 **A4 — `install.sh` on Windows (W1, in Git Bash).**
 
-Expected today: `no prebuilt binary for MINGW64_NT-... x86_64`. `install.sh` does not
-recognise Git Bash's `uname`, so it refuses although a Windows binary exists. Known
-gap; record the exact `uname -s` output, which is what the fix needs.
+Expected: `Downloading shlane <version> for x86_64-pc-windows-msvc`, `Installed
+~/.local/bin/shlane.exe`, then `shlane <version>`. This used to say `no prebuilt binary
+for MINGW64_NT-... x86_64`; `install.sh` now treats `MINGW*`, `MSYS*` and `CYGWIN*` as
+Windows. Record the exact `uname -s` if it still refuses.
 
 **A5 — The Windows tarball by hand (W1, in PowerShell).**
 
@@ -211,21 +214,59 @@ jobs:
         shell: bash
 ```
 
-Expected: passes on both Ubuntu runners. On `windows-latest` it fails today, for the
-same reason as A4 — the action runs `install.sh`. Record the log line; it is the same
-fix.
+Expected: passes on all three runners. `windows-latest` used to fail for the same
+reason as A4 — the action runs `install.sh` — and also because the action handed bash
+the runner's native `D:\a\_temp\...` paths. CI now runs this matrix itself, in the
+`action` job, against the checked-out action; a scratch repository checks the released
+tag, which is the part CI cannot.
 
 ## Done when
 
-- Every check passes on L1 and W1, except the known gaps (A2, A4, and H on Windows),
-  which should fail exactly as described.
+- Every check passes on L1 and W1.
 - L2 and L3 pass A, B, C and D.
-- Anything else that fails is opened as an issue with the record above, the command,
-  and its full output. D1 failing is a security bug and goes first.
+- Anything that fails is opened as an issue with the record above, the command, and its
+  full output. D1 failing is a security bug and goes first.
 
-## What the run is likely to turn into
+## What the run turned into
 
-The known gaps have one fix between them: `install.sh` has to recognise
-`MINGW*`/`MSYS*`/`CYGWIN*` and pick the Windows tarball (unpacking `shlane.exe`), and
-pick the musl build when `ldd --version` mentions musl or `/etc/alpine-release`
-exists. That also makes the GitHub Action work on Windows runners.
+The three known gaps had one fix between them, and it is in: `install.sh` recognises
+`MINGW*`/`MSYS*`/`CYGWIN*` and unpacks `shlane.exe` from the Windows tarball, and picks
+the musl build when `/etc/alpine-release` exists or `ldd --version` mentions musl.
+`tests/install-sh.sh` holds the table of what it should pick for each machine, and CI's
+`installer` and `action` jobs run the script and the action for real on Ubuntu x86-64,
+Ubuntu arm64, macOS and Windows.
+
+## The run
+
+```
+Machine:   L1
+OS:        Ubuntu 24.04.4 LTS (container, x86-64, glibc 2.39)
+shlane:    shlane 0.2.3 (the released x86_64-unknown-linux-gnu tarball)
+Shell:     n/a
+Results:   A1 pass, A3 pass*, B1-B4 pass, C pass, D1-D5 pass, D8 pass,
+           G pass. D6, D7 and E are Windows-only. F and H not run: see below.
+```
+
+- **A3 on L1, not L3** (`*`): the musl tarball's checksum matched, `file` says
+  `static-pie linked`, `ldd` says `statically linked`, and it ran on this glibc machine
+  — B1–B4, C and D1–D5 all pass with the musl binary too. It has still never run on
+  Alpine, which is what L3 is for.
+- **D1** printed `it's $(whoami) & "quoted"` literally, and the trace shows shlane
+  escaped it (`printf '%s\n' "it's \$(whoami) & \"quoted\""`). **D2** printed `token
+  is ***` and the value appears nowhere. **D3** failed after 2.0 s with the exact
+  message. **D4**: `sh -c sleep 10` and `sleep 10` were both running during the step and
+  neither was left afterwards. **D8**: `SIGINT` to shlane alone (not to the process
+  group, so nothing but shlane's own handling could clean up) left no `sleep` behind and
+  exited 130 with `error: interrupted while running 'sleep 10' in lane 'timeout'`.
+- **G** printed `4 lane(s), 9 action(s) converted, 0 line(s) left for you` and listed
+  `android_test`, `beta`, `deploy`, `ios_test`, matching
+  [`../fastlane-in-15-minutes.md`](../fastlane-in-15-minutes.md) line for line.
+- **F was not run**: the machine has Gradle 8.14.3 and JDK 21 but no Android SDK, and
+  its network policy blocks `dl.google.com`, so neither the SDK nor the Android Gradle
+  Plugin can be fetched. CI's `android-sample` job covers this on Linux; W1 is still
+  open.
+- **H was not run** as a scratch repository. The two CI jobs above cover the same
+  ground for the action as it stands on a branch.
+- **L2, L3, W1, W2, W3 are still open.** The install side of L3 and W1 is now covered by
+  `tests/install-sh.sh` and the `installer` job, but nothing has executed the musl binary
+  on Alpine or any Windows binary on Windows outside `cargo test`.

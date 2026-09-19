@@ -195,3 +195,46 @@ jobs:
         run: |
           ../target/debug/shlane run deploy target=production
           ../target/debug/shlane run deploy target=staging
+
+  installer:
+    name: install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: What it picks for each machine
+        if: runner.os == 'Linux'
+        run: tests/install-sh.sh
+      # The rest installs the latest release for real. install.sh prints the
+      # version it installed by running the binary, so this also says the
+      # download works on this machine.
+      - name: Install the latest release
+        shell: bash
+        env:
+          INSTALL_DIR: ${{ runner.temp }}/shlane-installer
+        run: |
+          dir="$INSTALL_DIR"
+          if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$INSTALL_DIR")"; fi
+          SHLANE_INSTALL_DIR="$dir" sh ./install.sh
+
+  action:
+    name: the GitHub Action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - id: shlane
+        uses: ./
+      - name: It is on PATH and said which version it is
+        shell: bash
+        run: |
+          shlane --version
+          version="${{ steps.shlane.outputs.version }}"
+          [ -n "$version" ] || { echo "the action reported no version"; exit 1; }
+          echo "installed $version"
