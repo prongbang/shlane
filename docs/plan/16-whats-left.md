@@ -1,6 +1,6 @@
 # 16 — What is left
 
-Where the project stands at `0.2.1`, and what remains. Written to be picked up on
+Where the project stands at `0.2.2`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
@@ -36,7 +36,7 @@ run as debugging, not as confirmation.
 
 ## Release
 
-`v0.2.1` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.1)
+`v0.2.2` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.2)
 and [crates.io](https://crates.io/crates/shlane), both from the tagged commit: macOS
 (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
 The macOS arm64 binary and `install.sh` have been run by hand; the others have only
@@ -53,7 +53,8 @@ To cut the next one:
 
 The crates.io step needs a `CARGO_REGISTRY_TOKEN` secret in this repository: a
 crates.io API token with the `publish-update` scope, limited to the `shlane` crate.
-Without it the job warns and succeeds, and `cargo publish` has to be run by hand. It
+Without it the job warns and succeeds, and `cargo publish` has to be run by hand. The
+secret is not set yet: 0.2.2 was published by hand. It
 refuses a tag that does not match `Cargo.toml`, and skips a version that is already on
 crates.io, so publishing by hand first does no harm.
 
@@ -91,6 +92,12 @@ Teams channel with them yet.
   GitHub runner yet; the first run on `master` is its real check.
 
 ## Known gaps in what exists
+
+- **Only the crates.io job checks the tag against `Cargo.toml`.** The first `v0.2.2`
+  was tagged before the version bump, and the build and GitHub Release jobs shipped
+  binaries named 0.2.2 that reported 0.2.1; the release and tag had to be deleted by
+  hand and cut again. The same check at the start of the `build` job would stop that
+  before anything is published.
 
 - **The release workflow's manual trigger ignores its `tag` input.** A manual run
   builds the branch it was started on and names the files after it. The crates.io step
