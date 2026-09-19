@@ -93,11 +93,10 @@ Teams channel with them yet.
 
 ## Known gaps in what exists
 
-- **Only the crates.io job checks the tag against `Cargo.toml`.** The first `v0.2.2`
-  was tagged before the version bump, and the build and GitHub Release jobs shipped
-  binaries named 0.2.2 that reported 0.2.1; the release and tag had to be deleted by
-  hand and cut again. The same check at the start of the `build` job would stop that
-  before anything is published.
+- **The first `v0.2.2` was tagged before the version bump**, and the release shipped
+  binaries named 0.2.2 that reported 0.2.1; the release and the tag had to be deleted
+  by hand and cut again. The release workflow now checks the tag against `Cargo.toml`
+  before it builds anything.
 
 - **The release workflow's manual trigger ignores its `tag` input.** A manual run
   builds the branch it was started on and names the files after it. The crates.io step
