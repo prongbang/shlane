@@ -21,6 +21,7 @@ exclude = [
     ".github/",
     "benchmarks/",
     "docs/plan/",
+    "docs/site/",
     "example/",
     "examples/",
     "action.yml",

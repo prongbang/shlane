@@ -6,7 +6,7 @@ rejected rather than ignored — a misspelled key that is silently dropped is a
 lane that quietly stops doing something.
 
 Where this document and the code disagree, the code is right and this is a bug.
-[`tests/schema_v1.rs`](../tests/schema_v1.rs) exists to stop them drifting.
+[`tests/schema_v1.rs`](https://github.com/prongbang/shlane/blob/master/tests/schema_v1.rs) exists to stop them drifting.
 
 ## The compatibility promise
 

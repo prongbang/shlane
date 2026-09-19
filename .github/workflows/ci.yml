@@ -142,6 +142,34 @@ jobs:
           jarsigner -verify build/counter-signed.aab | tee aab.txt
           grep -q 'jar verified' aab.txt || { echo "the AAB is not signed"; exit 1; }
 
+  docs:
+    name: the documentation site builds
+    runs-on: ubuntu-latest
+    env:
+      MDBOOK_VERSION: "0.5.4"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mdBook
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # mdBook renders an include whose file moved, or whose anchor was renamed,
+      # as a page with nothing but its title on it — and still exits 0. The build
+      # proves the book compiles; this test proves it says anything.
+      - run: cargo test --test docs_site
+      - run: mdbook build docs/site
+      # A link written for GitHub resolves against a different place on the site,
+      # and mdBook rewrites `.md` to `.html` on the way, so it breaks in the
+      # browser and nowhere else. This reads the built HTML, which is the only
+      # place that failure is visible.
+      - run: python3 docs/site/check-links.py docs/site/book
+
   package:
     name: the crate still publishes
     runs-on: ubuntu-latest

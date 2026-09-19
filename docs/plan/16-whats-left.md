@@ -4,14 +4,15 @@ Where the project stands at `0.2.3`, and what remains. Written to be picked up o
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
-actions, `cargo test` 440, and `master` is green on Linux, macOS and Windows.
+actions, `cargo test` 445, and `master` is green on Linux, macOS and Windows.
 
 ## Start here
 
 ```sh
 git pull
-cargo test                                    # 440
+cargo test                                    # 445
 cargo clippy --all-targets --all-features -- -D warnings
+mdbook build docs/site                        # the site, if it is being touched
 ```
 
 A note that cost a few hours: **run each check as its own command and read its exit
@@ -76,8 +77,18 @@ Teams channel with them yet.
 - **[Move off fastlane in 15 minutes](../fastlane-in-15-minutes.md) exists.** Writing
   it against a real Fastfile found three `migrate` and loader bugs, fixed with it, and
   `increment_build_number` now converts to `agvtool` as fastlane runs it.
-- **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
-  the content; this is packaging, not writing.
+- **The documentation site is `docs/site/`**, an mdBook published to
+  <https://prongbang.github.io/shlane/> on every push to `master` that touches the
+  README, `docs/` or the CHANGELOG. Its pages hold no prose of their own: each one
+  `{{#include}}`s what already exists, the README by named anchor. Adding a `##`
+  section to the README therefore fails `cargo test` until it is given a page —
+  wrap it in `<!-- ANCHOR: name -->` / `<!-- ANCHOR_END: name -->`, add a stub under
+  `docs/site/src/`, and link it from `SUMMARY.md`.
+
+  **Pages has to be turned on once**, in Settings → Pages, with *GitHub Actions* as
+  the source. Until someone does, the `Docs` workflow's deploy step fails with a
+  404 while the build step passes. Nobody has run it yet — the first push to
+  `master` is its real check.
 - **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.3` in the README
   and the guide). There is no moving `v0`/`v1` tag, so each release means updating
   both.

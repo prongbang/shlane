@@ -1,0 +1,23 @@
+[book]
+title = "shlane"
+description = "A fastlane-like automation tool written in Rust, with Rhai scripting."
+authors = ["prongbang"]
+language = "en"
+src = "src"
+
+# Every page here is a stub that includes the Markdown that already exists in the
+# repository — the README, `docs/*.md`, the CHANGELOG. Nothing is copied, so the
+# site cannot drift from what a reader sees on GitHub. `tests/docs_site.rs` checks
+# that every include still resolves and that no README section is left out.
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/prongbang/shlane"
+# A project site is served from a subdirectory, which the 404 page and the search
+# index have to know about.
+site-url = "/shlane/"
+
+[output.html.fold]
+enable = true
+level = 1

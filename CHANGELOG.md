@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A documentation site**, at <https://prongbang.github.io/shlane/>. `docs/site/` is
+  an mdBook, published by `.github/workflows/docs.yml` on every push to `master` that
+  touches the README, `docs/` or the changelog. Its pages carry no prose of their own:
+  each one includes Markdown that already exists in the repository, so the site and
+  what a reader sees on GitHub cannot drift apart.
+- **`tests/docs_site.rs`**, which is what makes that safe. mdBook renders an include
+  whose file moved or whose anchor was renamed as a page holding nothing but its
+  title, and still exits 0, so a green build proves little on its own. The tests fail
+  on a broken include, a page missing from `SUMMARY.md`, a stale anchor, and a README
+  section that was never given a page.
+
+### Fixed
+
+- **The README's relative links now work off GitHub.** Links such as
+  `docs/schema-v1.md` and `CHANGELOG.md` resolved against whatever page they were
+  rendered on, so every one of them was broken on crates.io. They are absolute now,
+  pointing at the documentation site for prose and at GitHub for repository files.
+
 ## [0.2.3] - 2026-09-19
 
 ### Changed
@@ -35,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`build_ios` takes `skip_export`**, to stop after the archive. Without an export
   there is no `.ipa`, so nothing needs signing. `shlane migrate` maps gym's
   `skip_package_ipa` to it.
-- **[Move off fastlane in 15 minutes](docs/fastlane-in-15-minutes.md)**, a walk
+- **[Move off fastlane in 15 minutes](https://prongbang.github.io/shlane/fastlane-in-15-minutes.html)**, a walk
   through one ordinary Fastfile from `shlane migrate` to CI, with the output shlane
   really printed.
 - **`examples/ios-sample` has an app target now** (`App/project.yml`, generated with
@@ -487,7 +507,7 @@ anyone can install.
 - **Global hooks see the lane they surround**, so `${shlane.lane}` and the lane's
   parameters resolve inside `before_all`.
 
-### Foundations from [`docs/plan/15-roadmap.md`](docs/plan/15-roadmap.md) — correctness,
+### Foundations from [`docs/plan/15-roadmap.md`](https://github.com/prongbang/shlane/blob/master/docs/plan/15-roadmap.md) — correctness,
 structure and safety, so the action system can be built on something solid.
 
 #### Fixed

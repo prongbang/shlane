@@ -7,3 +7,6 @@
 
 # shlane working directory
 .shlane/
+
+# the built documentation site
+/docs/site/book/
