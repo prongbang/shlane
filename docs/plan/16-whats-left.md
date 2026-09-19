@@ -1,6 +1,6 @@
 # 16 — What is left
 
-Where the project stands at `0.2.2`, and what remains. Written to be picked up on
+Where the project stands at `0.2.3`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
@@ -36,7 +36,7 @@ run as debugging, not as confirmation.
 
 ## Release
 
-`v0.2.2` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.2)
+`v0.2.3` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.3)
 and [crates.io](https://crates.io/crates/shlane), both from the tagged commit: macOS
 (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
 The macOS arm64 binary and `install.sh` have been run by hand; the others have only
@@ -54,7 +54,9 @@ To cut the next one:
 The crates.io step needs a `CARGO_REGISTRY_TOKEN` secret in this repository: a
 crates.io API token with the `publish-update` scope, limited to the `shlane` crate.
 Without it the job warns and succeeds, and `cargo publish` has to be run by hand. The
-secret is not set yet: 0.2.2 was published by hand. It
+secret is not set yet: 0.2.2 and 0.2.3 were published by hand. Publishing by hand
+before the workflow finishes risks a crates.io version with no GitHub Release if a
+build fails, and crates.io cannot take it back. It
 refuses a tag that does not match `Cargo.toml`, and skips a version that is already on
 crates.io, so publishing by hand first does no harm.
 

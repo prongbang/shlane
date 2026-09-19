@@ -35,7 +35,7 @@ of about 200 lines — to a tool that can stand in for
 | [13-testing-and-quality.md](13-testing-and-quality.md) | How this gets tested, and how the code is kept honest |
 | [14-release-and-distribution.md](14-release-and-distribution.md) | Building and shipping the binary |
 | [15-roadmap.md](15-roadmap.md) | Milestones M0–M7, the order of work, and the risks |
-| [16-whats-left.md](16-whats-left.md) | What remains at 0.2.2, checked against the code |
+| [16-whats-left.md](16-whats-left.md) | What remains at 0.2.3, checked against the code |
 
 ## How to read it
 
