@@ -4,6 +4,11 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # The nightly e2e: the sample jobs below build real projects, so a change on
+  # Apple's or Google's side shows up here even on a day nobody pushes.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -84,6 +89,42 @@ jobs:
         with:
           name: xcresult-json
           path: examples/ios-sample/build/xcresulttool.json
+
+  android-sample:
+    name: Android sample (real Gradle build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # The sample has no wrapper, so the gradle action falls back to this.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - run: cargo build
+
+      - name: Run the sample's tests through shlane
+        working-directory: examples/android-sample
+        run: ../../target/debug/shlane run test
+
+      - name: Build and sign an APK and an AAB through shlane
+        working-directory: examples/android-sample
+        run: ../../target/debug/shlane run release
+
+      - name: Check both are really signed
+        working-directory: examples/android-sample
+        run: |
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$tools/apksigner" verify --print-certs build/counter-signed.apk | tee apk.txt
+          grep -q 'CN=shlane sample' apk.txt || { echo "the APK is not signed with the sample key"; exit 1; }
+          # jarsigner exits 0 for an unsigned jar too, so read what it says.
+          jarsigner -verify build/counter-signed.aab | tee aab.txt
+          grep -q 'jar verified' aab.txt || { echo "the AAB is not signed"; exit 1; }
 
   package:
     name: the crate still publishes

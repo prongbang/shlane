@@ -271,10 +271,12 @@ reports problems that do not exist and hides the ones that do.
 | `which_tool` | Check a binary is installed, and new enough |
 | `zip` / `unzip` | Archive and extract |
 | `copy_artifacts` | Gather build outputs into one directory |
+| `clean_build_artifacts` | Delete build outputs, refusing anything outside the project |
 | `download` | Fetch a file over HTTP, with an optional checksum |
 | `template_render` | Substitute `${...}` in a file (in place of `erb`) |
 | `http_request` | Any HTTP call, with retries |
 | `notify_slack` | Post to an incoming webhook |
+| `notify_discord` / `notify_teams` | The same, for Discord and Microsoft Teams |
 
 A release with no shell in sight:
 
@@ -340,6 +342,10 @@ opens an edit, uploads, points the track at the new version code and commits, so
 failure part-way leaves the store untouched. **Its request shapes are unit-tested; the
 round trip against Google is not.** `firebase_distribution` wraps the `firebase` CLI,
 which must be installed.
+
+[`examples/android-sample`](examples/android-sample) is a small Java app with unit
+tests. CI runs its tests, builds an unsigned APK and AAB, and signs both with
+`sign_android`, then checks the signatures.
 
 ### iOS
 
@@ -654,6 +660,9 @@ It is best effort by construction — a Fastfile is Ruby, and Ruby can do anythi
 Anything it does not understand is carried across as a `# TODO` comment rather than
 dropped, and the report says what needs a person. It says so loudly when a conditional
 block is flattened: those steps now run unconditionally.
+
+[`docs/migration.md`](docs/migration.md) has the full action table. It is generated from
+the same tables `shlane migrate` uses, and a test fails when the two differ.
 
 ## On CI
 

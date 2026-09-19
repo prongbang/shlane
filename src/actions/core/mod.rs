@@ -50,8 +50,11 @@ pub fn all() -> Vec<Box<dyn Action>> {
         Box::new(files::Zip),
         Box::new(files::Unzip),
         Box::new(files::CopyArtifacts),
+        Box::new(files::CleanBuildArtifacts),
         Box::new(files::Download),
         Box::new(files::TemplateRender),
         Box::new(http::NotifySlack),
+        Box::new(http::NotifyDiscord),
+        Box::new(http::NotifyTeams),
     ]
 }

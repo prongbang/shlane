@@ -3,14 +3,14 @@
 Where the project stands at `0.2.0`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
-Checked against the code rather than the plan — `shlane action list` reports 37
-actions, `cargo test` 425, and `master` is green on Linux, macOS and Windows.
+Checked against the code rather than the plan — `shlane action list` reports 40
+actions, `cargo test` 434, and `master` is green on Linux, macOS and Windows.
 
 ## Start here
 
 ```sh
 git pull
-cargo test                                    # 425
+cargo test                                    # 434
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
@@ -59,36 +59,30 @@ keeps it passing.
 
 ## Actions the plan names that do not exist
 
-Small, self-contained, good first work. `src/actions/core/` and the `Action` trait in
-`src/actions/mod.rs`; each needs a schema, a test over what it builds, and a line in
-the README table.
-
-| Action | From | Notes |
-|---|---|---|
-| `notify_discord` | [`06`](06-actions-core.md) | A webhook POST. `notify_slack` in `src/actions/core/http.rs` is the shape to copy |
-| `notify_teams` | [`06`](06-actions-core.md) | Same, different payload |
-| `clean_build_artifacts` | [`06`](06-actions-core.md) | Delete what a build left behind |
-
-`docs/plan/06-actions-core.md` lists these under P1/P2. Everything else in that
-document is built.
+None left. `notify_discord`, `notify_teams` and `clean_build_artifacts` were the last
+three in [`06`](06-actions-core.md). Like `notify_slack`, the two webhooks are tested
+for what they send and for masking the URL; nobody has posted to a real Discord or
+Teams channel with them yet.
 
 ## Documentation
 
-- **`docs/migration.md` does not exist.** [`12`](12-migration-from-fastlane.md)
-  promises "the full table, updated every time an action is added". The data is
-  already in `src/migrate/mapping.rs` — consider generating the table from it so the
-  two cannot drift, the way `tests/schema_v1.rs` keeps the schema honest.
+- **`docs/migration.md` is done**, generated from `src/migrate/mapping.rs`. After
+  changing a mapping, run `UPDATE_DOCS=1 cargo test` and commit the result.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
+- **Plan 12's "15 minutes" guide and "what shlane still cannot do" page** do not exist
+  as separate pages. `docs/migration.md` covers part of both.
+- **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`
+  puts a `TODO-<name>` in each step instead.
 
 ## CI
 
-- **No nightly e2e.** [`15`](15-roadmap.md) asks for one on both platforms, green for
-  two weeks, before calling it 1.0. Today every job runs per push, and nothing runs on
-  a schedule.
-- **`examples/android-sample/` does not exist.** `examples/ios-sample` is the model:
-  a small real project the macOS job runs end to end. An Android equivalent would give
-  `gradle`, `build_android` and `sign_android` the same treatment on a cheap runner.
+- **The nightly run exists now**: `ci.yml` also runs on a schedule, so both sample
+  jobs build nightly. The 1.0 criterion in [`15`](15-roadmap.md) — green for two weeks
+  running — starts counting once this is on `master`.
+- **`examples/android-sample/` exists**, and has passed locally with Gradle 8.13, AGP
+  8.13 and JDK 21 (tests, then an APK and an AAB built and signed). It has not run on a
+  GitHub runner yet; the first run on `master` is its real check.
 
 ## Known gaps in what exists
 

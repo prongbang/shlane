@@ -1,0 +1,59 @@
+# Run from this directory with the Android SDK installed (ANDROID_HOME set)
+# and Gradle 8.13+ on PATH:
+#
+#   shlane run test
+#   shlane run release
+#
+# This is the project the Android CI job uses to check that gradle,
+# test_android, build_android and sign_android work against a real build.
+version: 1
+
+env:
+  # A throwaway keystore made by the lane itself; nothing here is a secret.
+  SAMPLE_KEYSTORE: build/sample.jks
+  SAMPLE_KEYSTORE_PASSWORD: sample-only-password
+  SAMPLE_KEY_ALIAS: sample
+
+lanes:
+  test:
+    description: "Run the unit tests and collect their reports"
+    platform: android
+    steps:
+      - id: tests
+        action: test_android
+      - run: echo "report_count=${steps.tests.report_count}"
+
+  release:
+    description: "Build an unsigned APK and AAB, then sign both"
+    platform: android
+    steps:
+      - run: |
+          mkdir -p build
+          rm -f "$SAMPLE_KEYSTORE"
+          keytool -genkeypair -noprompt -keystore "$SAMPLE_KEYSTORE" \
+            -storepass "$SAMPLE_KEYSTORE_PASSWORD" -keypass "$SAMPLE_KEYSTORE_PASSWORD" \
+            -alias "$SAMPLE_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=shlane sample"
+      - id: apk
+        action: build_android
+        with:
+          format: apk
+      - action: sign_android
+        with:
+          input: ${steps.apk.path}
+          output: build/counter-signed.apk
+          keystore: ${SAMPLE_KEYSTORE}
+          keystore_password: ${SAMPLE_KEYSTORE_PASSWORD}
+          key_alias: ${SAMPLE_KEY_ALIAS}
+      - id: aab
+        action: build_android
+        with:
+          format: aab
+      - action: sign_android
+        with:
+          input: ${steps.aab.path}
+          output: build/counter-signed.aab
+          keystore: ${SAMPLE_KEYSTORE}
+          keystore_password: ${SAMPLE_KEYSTORE_PASSWORD}
+          key_alias: ${SAMPLE_KEY_ALIAS}
+      - run: echo "signed build/counter-signed.apk and build/counter-signed.aab"

@@ -343,6 +343,136 @@ impl Action for CopyArtifacts {
 }
 
 /// Fetch something over HTTP: an SDK, a keystore, a translation bundle.
+/// Delete what a build left behind.
+pub struct CleanBuildArtifacts;
+
+impl Action for CleanBuildArtifacts {
+    fn name(&self) -> &'static str {
+        "clean_build_artifacts"
+    }
+
+    fn description(&self) -> &'static str {
+        "Delete build outputs, files or directories"
+    }
+
+    fn schema(&self) -> Vec<ArgSpec> {
+        vec![ArgSpec::new(
+            "paths",
+            "Comma-separated paths or patterns inside the project, e.g. build/**/*.ipa, build/App.xcarchive",
+        )
+        .required()]
+    }
+
+    fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
+        let patterns: Vec<&str> = args
+            .get_or("paths", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|pattern| !pattern.is_empty())
+            .collect();
+
+        let mut doomed = Vec::new();
+        for pattern in &patterns {
+            if !stays_inside(pattern) {
+                return Err(ctx.error(
+                    self.name(),
+                    format!("'{pattern}' is not a path inside the project; refusing to delete it"),
+                ));
+            }
+            let found = if pattern.contains('*') {
+                let mut found = Vec::new();
+                find_entries(ctx.workdir(), ctx.workdir(), pattern, &mut found);
+                found
+            } else {
+                let direct = ctx.workdir().join(pattern);
+                if direct.symlink_metadata().is_ok() {
+                    vec![direct]
+                } else {
+                    Vec::new()
+                }
+            };
+            if found.is_empty() {
+                ctx.ui.warn(&format!("'{pattern}' matched nothing"));
+            }
+            doomed.extend(found);
+        }
+        doomed.sort();
+        doomed.dedup();
+
+        let verb = if ctx.dry_run {
+            "Would delete"
+        } else {
+            "Deleting"
+        };
+        for path in &doomed {
+            let relative = path.strip_prefix(ctx.workdir()).unwrap_or(path);
+            ctx.ui.detail(&format!("{verb} {}", relative.display()));
+            if ctx.dry_run {
+                continue;
+            }
+            // symlink_metadata, so a link is removed rather than what it points at.
+            let removed = match path.symlink_metadata() {
+                Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+                Ok(_) => std::fs::remove_file(path),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(err) => Err(err),
+            };
+            removed.map_err(|err| {
+                ctx.error(
+                    self.name(),
+                    format!("cannot delete {}: {err}", relative.display()),
+                )
+            })?;
+        }
+
+        ctx.ui.say(&format!("{verb} {} path(s)", doomed.len()));
+        Ok(ActionOutput::new()
+            .with("count", doomed.len().to_string())
+            .with(
+                "paths",
+                doomed
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ))
+    }
+}
+
+/// A relative path that cannot climb out of the project or name the project
+/// itself.
+fn stays_inside(pattern: &str) -> bool {
+    let path = Path::new(pattern);
+    !path.has_root()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        && path.components().next().is_some()
+}
+
+/// Files and directories under `root` whose relative path matches `pattern`.
+/// A matched directory is taken whole; `.git` and symlinked directories are
+/// never entered, so `**` cannot reach the repository or leave the project.
+fn find_entries(root: &Path, at: &Path, pattern: &str, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(at) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        if matches(pattern, &relative.to_string_lossy().replace('\\', "/")) {
+            found.push(path);
+        } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            find_entries(root, &path, pattern, found);
+        }
+    }
+}
+
 pub struct Download;
 
 impl Action for Download {
@@ -566,6 +696,34 @@ fn quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_only_accepts_paths_inside_the_project() {
+        assert!(stays_inside("build/app.ipa"));
+        assert!(stays_inside("build/**/*.dSYM"));
+        assert!(!stays_inside("../elsewhere"));
+        assert!(!stays_inside("build/../../elsewhere"));
+        assert!(!stays_inside("/tmp/build"));
+        assert!(!stays_inside("."));
+        assert!(!stays_inside("./"));
+        assert!(!stays_inside(""));
+    }
+
+    #[test]
+    fn clean_finds_directories_whole_and_skips_git() {
+        let root = std::env::temp_dir().join(format!("shlane-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("build/App.app.dSYM/Contents")).unwrap();
+        std::fs::write(root.join("build/App.app.dSYM/Contents/x.dSYM"), "").unwrap();
+        std::fs::create_dir_all(root.join(".git/objects")).unwrap();
+        std::fs::write(root.join(".git/objects/y.dSYM"), "").unwrap();
+
+        let mut found = Vec::new();
+        find_entries(&root, &root, "**/*.dSYM", &mut found);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(found, vec![root.join("build/App.app.dSYM")]);
+    }
 
     #[test]
     fn matches_a_literal_path() {

@@ -1531,6 +1531,36 @@ lanes:
 }
 
 #[test]
+fn discord_and_teams_webhooks_never_reach_the_output() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  a:
+    steps:
+      - action: notify_discord
+        continue_on_error: true
+        with:
+          webhook: https://discord.example.invalid/api/webhooks/DISCORD-SECRET-1
+          text: hello
+      - action: notify_teams
+        with:
+          webhook: https://teams.example.invalid/workflows/TEAMS-SECRET-2
+          title: Release
+          text: hello
+"#,
+    );
+
+    let run = sandbox.run(&["run", "a"]);
+    let everything = format!("{}{}", run.stdout, run.stderr);
+    for secret in ["DISCORD-SECRET-1", "TEAMS-SECRET-2"] {
+        assert!(
+            !everything.contains(secret),
+            "{secret} leaked:\n{everything}"
+        );
+    }
+}
+
+#[test]
 fn http_request_arguments_are_validated_before_running() {
     let sandbox = Sandbox::new(
         "lanes:\n  a:\n    steps:\n      - action: http_request\n        with:\n          urll: http://example.com\n",
@@ -3215,6 +3245,59 @@ lanes:
         .run(&["run", "collect"])
         .assert_code(1)
         .assert_stderr_contains("matched nothing");
+}
+
+#[test]
+fn clean_build_artifacts_deletes_files_and_directories() {
+    let sandbox = Sandbox::new(
+        r#"
+lanes:
+  clean:
+    steps:
+      - id: cleaned
+        action: clean_build_artifacts
+        with:
+          paths: "build/**/*.ipa, build/App.xcarchive, build/nothing-here"
+      - run: echo count=${steps.cleaned.count}
+"#,
+    );
+    sandbox.write("build/out/App.ipa", "ipa");
+    sandbox.write("build/App.xcarchive/Info.plist", "plist");
+    sandbox.write("build/keep.txt", "keep");
+
+    let run = sandbox.run(&["run", "clean"]);
+    run.assert_code(0).assert_stdout_contains("count=2");
+    run.assert_stderr_contains("'build/nothing-here' matched nothing");
+
+    assert!(!sandbox.path().join("build/out/App.ipa").exists());
+    assert!(!sandbox.path().join("build/App.xcarchive").exists());
+    assert!(sandbox.path().join("build/keep.txt").is_file());
+}
+
+#[test]
+fn clean_build_artifacts_changes_nothing_on_a_dry_run() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  clean:\n    steps:\n      - action: clean_build_artifacts\n        with:\n          paths: build/App.ipa\n",
+    );
+    sandbox.write("build/App.ipa", "ipa");
+
+    sandbox
+        .run(&["run", "clean", "--dry-run"])
+        .assert_code(0)
+        .assert_stdout_contains("Would delete");
+    assert!(sandbox.path().join("build/App.ipa").is_file());
+}
+
+#[test]
+fn clean_build_artifacts_refuses_paths_outside_the_project() {
+    let sandbox = Sandbox::new(
+        "lanes:\n  clean:\n    steps:\n      - action: clean_build_artifacts\n        with:\n          paths: ../elsewhere\n",
+    );
+
+    sandbox
+        .run(&["run", "clean"])
+        .assert_code(1)
+        .assert_stderr_contains("refusing to delete");
 }
 
 #[test]

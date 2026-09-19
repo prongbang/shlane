@@ -209,19 +209,71 @@ pub fn lookup(fastlane: &str) -> Option<&'static Mapping> {
 }
 
 /// Actions with no equivalent, and what to say about each.
+const UNSUPPORTED: &[(&[&str], &str)] = &[
+    (
+        &["match", "sync_code_signing"],
+        "codesign_sync reads an existing match repository; it never creates or revokes certificates, so move this by hand",
+    ),
+    (
+        &["sigh", "get_provisioning_profile"],
+        "provisioning_profile downloads an existing profile; it never creates one, so move this by hand",
+    ),
+    (
+        &["cert", "get_certificates"],
+        "certificate downloads an existing certificate; it never creates one, so move this by hand",
+    ),
+    (
+        &["snapshot", "screengrab", "frameit", "precheck", "produce", "pem"],
+        "no equivalent; keep using a `run:` step for this",
+    ),
+];
+
 pub fn unsupported(name: &str) -> Option<&'static str> {
-    match name {
-        "match" | "sync_code_signing" => Some(
-            "shlane has no synced certificate store yet; build_ios uses Xcode's -allowProvisioningUpdates with an App Store Connect key",
-        ),
-        "sigh" | "get_provisioning_profile" | "cert" | "get_certificates" => {
-            Some("signing is handled by Xcode via -allowProvisioningUpdates; there is no direct equivalent")
-        }
-        "snapshot" | "screengrab" | "frameit" | "precheck" | "produce" | "pem" => {
-            Some("no equivalent; keep using a `run:` step for this")
-        }
-        _ => None,
+    UNSUPPORTED
+        .iter()
+        .find(|(names, _)| names.contains(&name))
+        .map(|(_, reason)| *reason)
+}
+
+/// The generated part of `docs/migration.md`: every mapping and every action
+/// with no equivalent, straight from the tables `shlane migrate` uses.
+#[cfg(test)]
+fn markdown_table() -> String {
+    let mut mappings: Vec<&Mapping> = MAPPINGS.iter().collect();
+    mappings.sort_by_key(|mapping| mapping.fastlane);
+
+    let mut out = String::from("## Actions\n\n| fastlane | shlane | Arguments |\n|---|---|---|\n");
+    for mapping in mappings {
+        let mut notes: Vec<String> = mapping
+            .renames
+            .iter()
+            .filter(|(from, to)| from != to)
+            .map(|(from, to)| format!("`{from}` → `{to}`"))
+            .collect();
+        notes.extend(
+            mapping
+                .add
+                .iter()
+                .map(|(key, value)| format!("adds `{key}: {value}`")),
+        );
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} |\n",
+            mapping.fastlane,
+            mapping.shlane,
+            notes.join(", ")
+        ));
     }
+
+    out.push_str("\n## Moved by hand\n\n| fastlane | Why |\n|---|---|\n");
+    for (names, reason) in UNSUPPORTED {
+        let names: Vec<String> = names.iter().map(|name| format!("`{name}`")).collect();
+        out.push_str(&format!(
+            "| {} | {} |\n",
+            names.join(", "),
+            reason.replace('|', "\\|")
+        ));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -258,6 +310,31 @@ mod tests {
         // deliver has an action now, so it is mapped rather than explained away.
         assert!(unsupported("deliver").is_none());
         assert_eq!(lookup("deliver").expect("mapped").shlane, "appstore");
+    }
+
+    /// `docs/migration.md` is generated from the tables above, so it cannot
+    /// drift from what `shlane migrate` does. `UPDATE_DOCS=1 cargo test`
+    /// rewrites it.
+    #[test]
+    fn the_migration_doc_matches_the_tables() {
+        const BEGIN: &str =
+            "<!-- BEGIN GENERATED: cargo test updates this, do not edit by hand -->\n";
+        const END: &str = "<!-- END GENERATED -->";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/migration.md");
+        let doc = std::fs::read_to_string(&path).expect("docs/migration.md exists");
+        let start = doc.find(BEGIN).expect("begin marker") + BEGIN.len();
+        let end = doc.find(END).expect("end marker");
+        let expected = format!("\n{}\n", markdown_table());
+
+        if doc[start..end] == expected {
+            return;
+        }
+        if std::env::var_os("UPDATE_DOCS").is_some() {
+            let updated = format!("{}{expected}{}", &doc[..start], &doc[end..]);
+            std::fs::write(&path, updated).expect("write docs/migration.md");
+            return;
+        }
+        panic!("docs/migration.md is out of date; run `UPDATE_DOCS=1 cargo test` and commit it");
     }
 
     #[test]

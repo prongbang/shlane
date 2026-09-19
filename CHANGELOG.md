@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`notify_discord` and `notify_teams`**, the two notifications the plan named that did
+  not exist. Both mask the webhook URL like `notify_slack` does. Teams gets an Adaptive
+  Card, which both Workflows webhooks and the older connectors accept.
+- **`clean_build_artifacts`** deletes files or whole directories (`.xcarchive`,
+  `.dSYM`) matched by the same patterns as `copy_artifacts`. It refuses absolute paths
+  and `..`, never enters `.git`, and removes a symlink rather than what it points at,
+  because `**` can reach more than the person who wrote it meant.
+- **`docs/migration.md`**, the full fastlane-to-shlane action table. It is generated
+  from `src/migrate/mapping.rs`, and a test fails when the two differ;
+  `UPDATE_DOCS=1 cargo test` rewrites it.
+- **`examples/android-sample`**, a small Java app with unit tests. A new CI job runs its
+  tests, builds an APK and an AAB, signs both with `sign_android` and checks the
+  signatures.
+- **A nightly CI run** (03:17 UTC), so both sample projects build against current
+  toolchains even on days nobody pushes.
+
+### Changed
+
+- **`shlane migrate` points `match`, `sigh` and `cert` at `codesign_sync`,
+  `provisioning_profile` and `certificate`** instead of saying there is no equivalent.
+  They are still left for a person to move, because the fastlane actions can create
+  certificates and profiles and the shlane ones only read existing ones.
+
 ### Fixed
 
 - **Windows actually works now, rather than only compiling.** Adding the target and its

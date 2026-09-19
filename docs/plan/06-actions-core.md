@@ -71,8 +71,8 @@ pub struct ActionOutput(pub HashMap<String, Value>);   // lands in ctx.outputs[s
 | Action | In place of |
 |---|---|
 | `notify_slack` | `slack` |
-| `notify_discord` | a plugin |
-| `notify_teams` | a plugin |
+| `notify_discord` | a plugin — built in instead, since it is one webhook POST |
+| `notify_teams` | a plugin — built in instead, same reason |
 | `http_request` | — (the escape hatch for any other webhook) |
 
 ### Files and artifacts

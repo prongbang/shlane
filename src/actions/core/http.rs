@@ -271,43 +271,147 @@ impl Action for NotifySlack {
             fields.push(("username", username));
         }
 
-        let payload = format!(
-            "{{{}}}",
-            fields
-                .iter()
-                .map(|(key, value)| format!("\"{key}\":\"{}\"", escape(value)))
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-
-        if ctx.dry_run {
-            ctx.ui.say(&format!("Would post to Slack: {payload}"));
-            return Ok(ActionOutput::new().with("status", "0"));
-        }
-
-        ctx.ui.say("Posting to Slack");
-        let response = send(
-            ctx,
-            "POST",
-            webhook,
-            &[("Content-Type".to_string(), "application/json".to_string())],
-            Payload::Text(&payload),
-        )
-        .map_err(|message| ctx.error(self.name(), format!("could not reach Slack: {message}")))?;
-
-        if !(200..300).contains(&response.status) {
-            return Err(ctx.error(
-                self.name(),
-                format!(
-                    "Slack returned HTTP {}: {}",
-                    response.status,
-                    response.body.trim()
-                ),
-            ));
-        }
-
-        Ok(ActionOutput::new().with("status", response.status.to_string()))
+        let payload = json_object(&fields);
+        post_webhook(ctx, self.name(), "Slack", webhook, &payload)
     }
+}
+
+pub struct NotifyDiscord;
+
+impl Action for NotifyDiscord {
+    fn name(&self) -> &'static str {
+        "notify_discord"
+    }
+
+    fn description(&self) -> &'static str {
+        "Post a message to a Discord webhook"
+    }
+
+    fn schema(&self) -> Vec<ArgSpec> {
+        vec![
+            ArgSpec::new("webhook", "Webhook URL")
+                .required()
+                .sensitive(),
+            ArgSpec::new("text", "Message to post").required(),
+            ArgSpec::new("username", "Override the webhook's default name"),
+        ]
+    }
+
+    fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
+        let webhook = args.get_or("webhook", "");
+        ctx.mark_secret(webhook);
+
+        let mut fields = vec![("content", args.get_or("text", ""))];
+        if let Some(username) = args.get("username") {
+            fields.push(("username", username));
+        }
+        post_webhook(ctx, self.name(), "Discord", webhook, &json_object(&fields))
+    }
+}
+
+pub struct NotifyTeams;
+
+impl Action for NotifyTeams {
+    fn name(&self) -> &'static str {
+        "notify_teams"
+    }
+
+    fn description(&self) -> &'static str {
+        "Post a message to a Microsoft Teams webhook"
+    }
+
+    fn schema(&self) -> Vec<ArgSpec> {
+        vec![
+            ArgSpec::new("webhook", "Workflows or incoming webhook URL")
+                .required()
+                .sensitive(),
+            ArgSpec::new("text", "Message to post").required(),
+            ArgSpec::new("title", "A bold line above the message"),
+        ]
+    }
+
+    fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
+        let webhook = args.get_or("webhook", "");
+        ctx.mark_secret(webhook);
+
+        let payload = teams_payload(args.get("title"), args.get_or("text", ""));
+        post_webhook(ctx, self.name(), "Teams", webhook, &payload)
+    }
+}
+
+/// An Adaptive Card wrapped in a message: the shape both Teams Workflows
+/// webhooks and the older incoming-webhook connectors accept.
+fn teams_payload(title: Option<&str>, text: &str) -> String {
+    let block = |text: &str, bold: bool| {
+        let weight = if bold {
+            r#","weight":"Bolder","size":"Medium""#
+        } else {
+            ""
+        };
+        format!(
+            r#"{{"type":"TextBlock","text":"{}","wrap":true{weight}}}"#,
+            escape(text)
+        )
+    };
+    let mut body = Vec::new();
+    if let Some(title) = title {
+        body.push(block(title, true));
+    }
+    body.push(block(text, false));
+
+    format!(
+        r#"{{"type":"message","attachments":[{{"contentType":"application/vnd.microsoft.card.adaptive","content":{{"type":"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{}]}}}}]}}"#,
+        body.join(",")
+    )
+}
+
+fn json_object(fields: &[(&str, &str)]) -> String {
+    format!(
+        "{{{}}}",
+        fields
+            .iter()
+            .map(|(key, value)| format!("\"{key}\":\"{}\"", escape(value)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+/// POST a JSON payload to a chat webhook. The caller has already marked the
+/// URL secret: it is the credential.
+fn post_webhook(
+    ctx: &mut ActionContext<'_>,
+    action: &str,
+    service: &str,
+    webhook: &str,
+    payload: &str,
+) -> Result<ActionOutput> {
+    if ctx.dry_run {
+        ctx.ui.say(&format!("Would post to {service}: {payload}"));
+        return Ok(ActionOutput::new().with("status", "0"));
+    }
+
+    ctx.ui.say(&format!("Posting to {service}"));
+    let response = send(
+        ctx,
+        "POST",
+        webhook,
+        &[("Content-Type".to_string(), "application/json".to_string())],
+        Payload::Text(payload),
+    )
+    .map_err(|message| ctx.error(action, format!("could not reach {service}: {message}")))?;
+
+    if !(200..300).contains(&response.status) {
+        return Err(ctx.error(
+            action,
+            format!(
+                "{service} returned HTTP {}: {}",
+                response.status,
+                response.body.trim()
+            ),
+        ));
+    }
+
+    Ok(ActionOutput::new().with("status", response.status.to_string()))
 }
 
 pub fn escape(text: &str) -> String {
@@ -348,5 +452,25 @@ mod tests {
     fn escapes_json_payloads() {
         assert_eq!(escape("say \"hi\""), "say \\\"hi\\\"");
         assert_eq!(escape("a\nb"), "a\\nb");
+    }
+
+    #[test]
+    fn builds_flat_json_objects() {
+        assert_eq!(
+            json_object(&[("content", "hi \"you\""), ("username", "ci")]),
+            r#"{"content":"hi \"you\"","username":"ci"}"#
+        );
+    }
+
+    #[test]
+    fn teams_payload_is_an_adaptive_card() {
+        let payload = teams_payload(Some("Release"), "v1.2.3\nshipped");
+        assert!(payload.starts_with(r#"{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive""#), "{payload}");
+        assert!(payload.contains(r#"{"type":"TextBlock","text":"Release","wrap":true,"weight":"Bolder","size":"Medium"}"#), "{payload}");
+        assert!(
+            payload.contains(r#"{"type":"TextBlock","text":"v1.2.3\nshipped","wrap":true}"#),
+            "{payload}"
+        );
+        assert!(!teams_payload(None, "x").contains("Bolder"));
     }
 }
