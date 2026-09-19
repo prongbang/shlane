@@ -1,5 +1,8 @@
 # Migrating from fastlane
 
+New to shlane? [Move off fastlane in 15 minutes](fastlane-in-15-minutes.md) walks through
+a whole Fastfile. This page is the reference.
+
 Move one lane at a time. A lane that has not moved yet can still call fastlane, so
 both run side by side until the last one is done:
 

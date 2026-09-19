@@ -4,13 +4,13 @@ Where the project stands at `0.2.0`, and what remains. Written to be picked up o
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
-actions, `cargo test` 436, and `master` is green on Linux, macOS and Windows.
+actions, `cargo test` 439, and `master` is green on Linux, macOS and Windows.
 
 ## Start here
 
 ```sh
 git pull
-cargo test                                    # 436
+cargo test                                    # 439
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
@@ -59,10 +59,15 @@ Teams channel with them yet.
 
 - **`docs/migration.md` is done**, generated from `src/migrate/mapping.rs`. After
   changing a mapping, run `UPDATE_DOCS=1 cargo test` and commit the result.
+- **[Move off fastlane in 15 minutes](../fastlane-in-15-minutes.md) exists.** Writing
+  it against a real Fastfile found three `migrate` and loader bugs, fixed with it.
+  `increment_build_number` still maps to `bump_version`, which has no file to bump in a
+  native Xcode project; the guide says to use `agvtool` there.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
-- **Plan 12's "15 minutes" guide and "what shlane still cannot do" page** do not exist
-  as separate pages. `docs/migration.md` covers part of both.
+- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.0` in the README
+  and the guide). There is no moving `v0`/`v1` tag, so each release means updating
+  both.
 - **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`
   puts a `TODO-<name>` in each step instead.
 

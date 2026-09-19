@@ -647,6 +647,9 @@ checksum again.
 
 ## Migrating from fastlane
 
+[Move off fastlane in 15 minutes](docs/fastlane-in-15-minutes.md) walks through a whole
+Fastfile, from `shlane migrate` to CI.
+
 ```sh
 shlane migrate                       # reads fastlane/Fastfile, writes shlane.yaml
 shlane validate
@@ -668,7 +671,7 @@ the same tables `shlane migrate` uses, and a test fails when the two differ.
 ## On CI
 
 ```yaml
-- uses: prongbang/shlane@v1
+- uses: prongbang/shlane@v0.2.0
   with:
     lane: beta
     params: target=production

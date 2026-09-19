@@ -11,9 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`build_ios` takes `skip_export`**, to stop after the archive. Without an export
   there is no `.ipa`, so nothing needs signing. `shlane migrate` maps gym's
   `skip_package_ipa` to it.
+- **[Move off fastlane in 15 minutes](docs/fastlane-in-15-minutes.md)**, a walk
+  through one ordinary Fastfile from `shlane migrate` to CI, with the output shlane
+  really printed.
 - **`examples/ios-sample` has an app target now** (`App/project.yml`, generated with
   XcodeGen), and the macOS CI job archives it with `build_ios`. Until now nothing had
   run `build_ios` against a real Xcode.
+
+### Fixed
+
+- **Two lanes with the same name silently became one.** A config is read into a map,
+  which keeps the last of two equal keys; the first lane disappeared from `list` and
+  `run` without a word. Duplicate keys anywhere in `shlane.yaml` are an error now.
+- **`shlane migrate` produced those duplicates** from any Fastfile with, say, both
+  `ios test` and `android test`. A lane name used on more than one platform now takes
+  the platform (`ios_test`, `android_test`), and the summary says how to call it.
+- **The README pointed at `prongbang/shlane@v1`**, a tag that does not exist, so a
+  workflow copied from it failed. It says `@v0.2.0` now.
+- **scan's `devices` came out as `"[\"iPhone 16\"]"`**, which is not a destination
+  `xcodebuild` accepts. It becomes `platform=iOS Simulator,name=iPhone 16`.
 
 ### Removed
 
