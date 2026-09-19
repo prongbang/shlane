@@ -619,20 +619,24 @@ impl Action for SignAndroid {
         }
 
         let mut to_sign = input.clone();
+        // Removed when this returns, signed or not: it is an intermediate, and
+        // left behind it is one more .apk for the next glob to pick up.
         let _aligned;
         if args.flag("zipalign") && !ctx.dry_run {
             let zipalign = android_tool(ctx.env, "zipalign")
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "zipalign".to_string());
             let aligned = input.with_extension("aligned.apk");
+            _aligned = TempFile {
+                path: aligned.clone(),
+            };
             ctx.require(&format!(
                 "{} -p -f 4 {} {}",
                 quote(&zipalign),
                 quote(&input.display().to_string()),
                 quote(&aligned.display().to_string())
             ))?;
-            to_sign = aligned.clone();
-            _aligned = aligned;
+            to_sign = aligned;
         }
 
         let apksigner = android_tool(ctx.env, "apksigner")

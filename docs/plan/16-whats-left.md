@@ -4,13 +4,13 @@ Where the project stands at `0.2.0`, and what remains. Written to be picked up o
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
-actions, `cargo test` 434, and `master` is green on Linux, macOS and Windows.
+actions, `cargo test` 435, and `master` is green on Linux, macOS and Windows.
 
 ## Start here
 
 ```sh
 git pull
-cargo test                                    # 434
+cargo test                                    # 435
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 

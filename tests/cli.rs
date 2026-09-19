@@ -1688,6 +1688,58 @@ lanes:
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn sign_android_removes_the_aligned_intermediate() {
+    let sandbox = Sandbox::new("lanes: {}\n");
+    // Stand-ins for the build tools: zipalign copies, apksigner writes --out.
+    sandbox.write(
+        "sdk/build-tools/35.0.0/zipalign",
+        "#!/bin/sh\ncp \"$4\" \"$5\"\n",
+    );
+    sandbox.write(
+        "sdk/build-tools/35.0.0/apksigner",
+        "#!/bin/sh\nwhile [ \"$1\" != --out ]; do shift; done\ncp \"$3\" \"$2\"\n",
+    );
+    for tool in ["zipalign", "apksigner"] {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = sandbox.path().join("sdk/build-tools/35.0.0").join(tool);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    sandbox.write("app-release-unsigned.apk", "apk");
+    sandbox.write("release.jks", "keystore");
+    sandbox.write(
+        "shlane.yaml",
+        &format!(
+            r#"
+env:
+  ANDROID_HOME: {}
+lanes:
+  sign:
+    steps:
+      - action: sign_android
+        with:
+          input: app-release-unsigned.apk
+          output: app-release.apk
+          keystore: release.jks
+          keystore_password: pw
+          key_alias: release
+"#,
+            sandbox.path().join("sdk").display()
+        ),
+    );
+
+    sandbox.run(&["run", "sign"]).assert_code(0);
+    assert!(sandbox.path().join("app-release.apk").is_file());
+    assert!(
+        !sandbox
+            .path()
+            .join("app-release-unsigned.aligned.apk")
+            .exists(),
+        "the zipaligned intermediate was left behind"
+    );
+}
+
 #[test]
 fn sign_android_needs_a_keystore() {
     let sandbox = Sandbox::new(

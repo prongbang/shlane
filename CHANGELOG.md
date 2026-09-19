@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sign_android` left a `*.aligned.apk` behind** next to every APK it signed. The
+  zipaligned copy is an intermediate; it is removed now whether signing succeeds or
+  not, so the next `**/*.apk` pattern does not pick it up.
 - **Windows actually works now, rather than only compiling.** Adding the target and its
   CI job in the same change meant the tests never ran there; once they did, three real
   gaps showed up.
