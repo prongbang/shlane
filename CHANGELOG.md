@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`asc_api_key`** packs `key_id`, `issuer_id` and `key` (PEM, base64 or a path),
+  or `key_path` (always read as a file), into the base64 `{keyId, issuerId, authKey}` object that `api_key` reads, so a lane
+  can move to one credential without hand-building JSON. The result is masked.
+- **`shlane action run <name> key=value...`** runs one built-in action with no
+  `shlane.yaml` and prints its outputs; a single output prints as its bare value, so
+  `API_KEY=$(shlane action run asc_api_key key_id=... issuer_id=... key=...)` works.
 - **A documentation site**, at <https://prongbang.github.io/shlane/>. `docs/site/` is
   an mdBook, published by `.github/workflows/docs.yml` on every push to `master` that
   touches the README, `docs/` or the changelog. Its pages carry no prose of their own:

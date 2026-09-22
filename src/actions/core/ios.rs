@@ -5,8 +5,8 @@
 //! (`docs/plan/13-testing-and-quality.md`).
 
 use crate::actions::asc::{
-    credential_args, credential_identity, credential_problems, load_credential,
-    migration_credential_arg, token,
+    credential_args, credential_identity, credential_problems, encode_object, load_credential,
+    migration_credential_arg, token, ApiKey,
 };
 use crate::actions::context::ActionContext;
 use crate::actions::{Action, ActionOutput, ArgSpec, Args};
@@ -618,6 +618,63 @@ impl KeyFile {
 impl Drop for KeyFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Packs the legacy triplet into one `api_key`, so CI can carry a single secret.
+pub struct AscApiKey;
+
+impl Action for AscApiKey {
+    fn name(&self) -> &'static str {
+        "asc_api_key"
+    }
+
+    fn description(&self) -> &'static str {
+        "Pack key_id, issuer_id and key (or key_path) into one base64 api_key"
+    }
+
+    fn schema(&self) -> Vec<ArgSpec> {
+        vec![
+            ArgSpec::new("key_id", "App Store Connect key id").required(),
+            ArgSpec::new("issuer_id", "App Store Connect issuer id").required(),
+            ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it").sensitive(),
+            ArgSpec::new("key_path", "Path to the .p8 file"),
+        ]
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        match (
+            provided.contains_key("key"),
+            provided.contains_key("key_path"),
+        ) {
+            (true, true) => vec!["needs key or key_path, not both".to_string()],
+            (false, false) => vec!["needs key or key_path".to_string()],
+            _ => Vec::new(),
+        }
+    }
+
+    fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
+        // An explicit path is read as a file, never guessed at as base64.
+        let key = match args.get("key_path") {
+            Some(path) => {
+                let path = ctx.workdir().join(path);
+                fs::read_to_string(&path)
+                    .map_err(|err| format!("cannot read {}: {err}", path.display()))
+            }
+            None => Ok(args.get_or("key", "").to_string()),
+        }
+        .and_then(|key| {
+            ApiKey::load(
+                args.get_or("key_id", ""),
+                args.get_or("issuer_id", ""),
+                &key,
+                ctx.workdir(),
+            )
+        })
+        .and_then(|key| encode_object(&key))
+        .map_err(|message| ctx.error(self.name(), message))?;
+        ctx.mark_secret(&key);
+        Ok(ActionOutput::new().with("api_key", key))
     }
 }
 

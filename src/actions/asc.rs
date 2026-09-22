@@ -151,6 +151,27 @@ fn parse_object(value: &str) -> Result<CredentialObject, String> {
     Ok(object)
 }
 
+/// Pack a key into the form `api_key` reads: base64 of `{keyId, issuerId, authKey}`.
+pub fn encode_object(key: &ApiKey) -> Result<String, String> {
+    if key.key_id.trim().is_empty() || key.issuer_id.trim().is_empty() {
+        return Err("key_id and issuer_id must not be empty".to_string());
+    }
+    let json = serde_json::json!({
+        "keyId": key.key_id,
+        "issuerId": key.issuer_id,
+        "authKey": key.private_key,
+    })
+    .to_string();
+    // Standard, padded base64 is what CI secret tooling and `base64 -d` expect.
+    let mut encoded = base64url(json.as_bytes())
+        .replace('-', "+")
+        .replace('_', "/");
+    while !encoded.len().is_multiple_of(4) {
+        encoded.push('=');
+    }
+    Ok(encoded)
+}
+
 impl ApiKey {
     /// Accept the key as PEM, as base64 of the PEM, or as a path to the file.
     pub fn load(
@@ -356,6 +377,23 @@ mod tests {
         let key = load_object(&encoded, Path::new(".")).expect("valid object");
         assert_eq!(key.key_id, "K");
         assert_eq!(key.issuer_id, "I");
+    }
+
+    #[test]
+    fn encoded_object_round_trips_through_api_key() {
+        let pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";
+        let key = ApiKey::load("K", "I", &encode_base64(pem.as_bytes()), Path::new("."))
+            .expect("should load");
+        let encoded = encode_object(&key).expect("should encode");
+
+        assert_eq!(encoded.len() % 4, 0);
+        let object = parse_object(&encoded).expect("api_key should accept it");
+        assert_eq!(object.key_id, "K");
+        assert_eq!(object.issuer_id, "I");
+        assert_eq!(object.auth_key, pem);
+
+        let blank = ApiKey::load(" ", "I", pem, Path::new(".")).expect("should load");
+        assert!(encode_object(&blank).is_err());
     }
 
     #[test]

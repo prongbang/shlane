@@ -121,6 +121,7 @@ shlane run deploy target=staging
 | `shlane init` | Write a starter config, guessing the project type |
 | `shlane env` | The environment a lane would run with, secrets masked |
 | `shlane action list` / `show <name>` | The built-in actions and their arguments |
+| `shlane action run <name> [key=value...]` | Run one action without a config; one output prints bare, e.g. `API_KEY=$(shlane action run asc_api_key key_id=... issuer_id=... key=...)` |
 | `shlane plugin add/remove/install/list/lock/verify` | Manage and inspect plugins |
 | `shlane migrate` | Convert a Fastfile into a `shlane.yaml` |
 | `shlane cache-paths` | The paths a CI should cache for this config |
@@ -387,6 +388,7 @@ tests. CI runs its tests, builds an unsigned APK and AAB, and signs both with
 | `testflight` | Upload a build to TestFlight |
 | `appstore` | Push App Store metadata, attach a build, submit for review |
 | `asc_request` | Any App Store Connect API call, authenticated |
+| `asc_api_key` | Pack `key_id`, `issuer_id` and `key` (or `key_path`) into one base64 `api_key` |
 
 ```yaml
 lanes:

@@ -3807,3 +3807,57 @@ exit 1
         .assert_code(2)
         .assert_stderr_contains("and printed nothing");
 }
+
+#[test]
+fn action_run_prints_a_single_output_bare_without_a_config() {
+    let sandbox = Sandbox::empty();
+    let pem = "key=-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";
+
+    let run = sandbox.run(&[
+        "action",
+        "run",
+        "asc_api_key",
+        "key_id=K",
+        "issuer_id=I",
+        pem,
+    ]);
+    run.assert_code(0);
+    let value = run.stdout.trim_end();
+    assert!(!value.contains('\n'), "one line, got {value:?}");
+    assert!(
+        value.starts_with("eyJ"),
+        "base64 of a JSON object, got {value:?}"
+    );
+
+    fs::write(sandbox.path.join("k.p8"), &pem["key=".len()..]).expect("key should be writable");
+    let from_path = sandbox.run(&[
+        "action",
+        "run",
+        "asc_api_key",
+        "key_id=K",
+        "issuer_id=I",
+        "key_path=k.p8",
+    ]);
+    from_path.assert_code(0);
+    assert_eq!(
+        from_path.stdout, run.stdout,
+        "key_path and key give the same api_key"
+    );
+
+    sandbox
+        .run(&[
+            "action",
+            "run",
+            "asc_api_key",
+            "key_id=K",
+            "issuer_id=I",
+            "key_path=missing.p8",
+        ])
+        .assert_code(1)
+        .assert_stderr_contains("cannot read");
+    sandbox
+        .run(&["action", "run", "asc_api_key", "key_id=K"])
+        .assert_code(1)
+        .assert_stderr_contains("needs 'issuer_id'")
+        .assert_stderr_contains("needs key or key_path");
+}

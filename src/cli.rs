@@ -60,6 +60,22 @@ enum ActionCommands {
         #[arg(help = "Action name")]
         name: String,
     },
+    /// Run one action without a config file and print its outputs
+    ///
+    /// A single output prints as its bare value, so it can be captured:
+    /// `API_KEY=$(shlane action run asc_api_key key_id=... issuer_id=... key=...)`
+    Run {
+        #[arg(help = "Action name")]
+        name: String,
+
+        /// The action's arguments, e.g. key_id=ABC123
+        #[arg(value_name = "KEY=VALUE")]
+        params: Vec<String>,
+
+        /// Print what would run without running it
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -249,12 +265,18 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 Ok(found) => registry_for(&found)?,
                 Err(_) => crate::actions::Registry::builtins(),
             };
+            let registry = std::rc::Rc::new(registry);
             match command {
                 ActionCommands::List => {
                     actions::list(&registry);
                     Ok(())
                 }
                 ActionCommands::Show { name } => actions::show(&registry, &name),
+                ActionCommands::Run {
+                    name,
+                    params,
+                    dry_run,
+                } => actions::run(registry, &name, &params, &base, dry_run, verbosity, json),
             }
         }
         Commands::Plugin { command } => {

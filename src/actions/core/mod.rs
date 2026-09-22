@@ -41,6 +41,7 @@ pub fn all() -> Vec<Box<dyn Action>> {
         Box::new(ios::TestIos),
         Box::new(ios::Keychain),
         Box::new(ios::TestFlight),
+        Box::new(ios::AscApiKey),
         Box::new(ios::AscRequest),
         Box::new(appstore::AppStore),
         Box::new(ci::SetupCi),
