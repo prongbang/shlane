@@ -132,12 +132,27 @@ jobs:
             echo "See CHANGELOG.md" > notes.md
           fi
 
+      # install.sh installs whatever releases/latest points at, and GitHub makes
+      # every new release the latest, so releasing an older tag would downgrade
+      # everyone.
+      - name: Only the highest version is the latest release
+        id: latest
+        run: |
+          git fetch --quiet --tags --force
+          top=$(git tag -l 'v*' | sort -V | tail -n 1)
+          if [ "$top" = "$GITHUB_REF_NAME" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
           body_path: notes.md
+          make_latest: ${{ steps.latest.outputs.value }}
 
 
   crates-io:
