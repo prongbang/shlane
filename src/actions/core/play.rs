@@ -89,9 +89,12 @@ impl Action for PlayStore {
     fn schema(&self) -> Vec<ArgSpec> {
         vec![
             ArgSpec::new("package_name", "Application id, e.g. com.example.app").required(),
-            ArgSpec::new("service_account_json", "The key itself, or a path to it")
-                .required()
-                .sensitive(),
+            ArgSpec::new(
+                "service_account_json",
+                "The key JSON, base64 JSON, or a path to it",
+            )
+            .required()
+            .sensitive(),
             ArgSpec::new("aab", "App bundle to upload"),
             ArgSpec::new("apk", "APK to upload, if not using a bundle"),
             ArgSpec::new("track", "internal, alpha, beta or production").default("internal"),

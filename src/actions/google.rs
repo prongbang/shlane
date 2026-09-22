@@ -21,20 +21,27 @@ pub struct ServiceAccount {
 }
 
 impl ServiceAccount {
-    /// Accept either the JSON itself or a path to it, since CI hands it over
-    /// both ways.
+    /// Accept raw JSON, an existing path, or base64 JSON from a CI secret.
     pub fn load(value: &str, root: &std::path::Path) -> Result<Self, String> {
         let text = if value.trim_start().starts_with('{') {
             value.to_string()
         } else {
             let path = root.join(value.trim());
-            std::fs::read_to_string(&path)
-                .map_err(|err| format!("cannot read {}: {err}", path.display()))?
+            if path.is_file() {
+                std::fs::read_to_string(&path)
+                    .map_err(|_| "cannot read service account file".to_string())?
+            } else {
+                let bytes = decode_base64(value).map_err(|_| {
+                    "service account must be JSON, an existing file, or base64 JSON".to_string()
+                })?;
+                String::from_utf8(bytes)
+                    .map_err(|_| "service account base64 must decode to UTF-8 JSON".to_string())?
+            }
         };
 
         // JSON is valid YAML, so this needs no extra parser.
         serde_yaml::from_str(&text)
-            .map_err(|err| format!("this does not look like a service account key: {err}"))
+            .map_err(|_| "this does not look like a service account key".to_string())
     }
 
     pub fn token_uri(&self) -> &str {
@@ -178,6 +185,27 @@ pub struct TokenResponse {
 mod tests {
     use super::*;
 
+    fn encode_base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let triple = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            for position in 0..4 {
+                if position <= chunk.len() {
+                    out.push(ALPHABET[((triple >> (18 - position * 6)) & 0x3F) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
     fn account() -> ServiceAccount {
         ServiceAccount {
             client_email: "bot@example.iam.gserviceaccount.com".to_string(),
@@ -243,6 +271,40 @@ mod tests {
     #[test]
     fn rejects_json_that_is_not_a_service_account() {
         assert!(ServiceAccount::load("{\"hello\":1}", std::path::Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn reads_a_service_account_from_base64_json() {
+        let encoded = encode_base64(
+            br#"{"client_email":"a@b.com","private_key":"-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"}"#,
+        );
+        let account =
+            ServiceAccount::load(&encoded, std::path::Path::new(".")).expect("valid base64 JSON");
+        assert_eq!(account.client_email, "a@b.com");
+    }
+
+    #[test]
+    fn reads_a_service_account_from_a_relative_file() {
+        let root = std::env::temp_dir().join(format!("shlane-google-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("fixture directory");
+        std::fs::write(
+            root.join("account.json"),
+            r#"{"client_email":"file@b.com","private_key":"pem"}"#,
+        )
+        .expect("fixture file");
+
+        let account = ServiceAccount::load("account.json", &root).expect("valid file");
+        assert_eq!(account.client_email, "file@b.com");
+        std::fs::remove_dir_all(root).expect("fixture cleanup");
+    }
+
+    #[test]
+    fn invalid_base64_does_not_echo_the_service_account_value() {
+        let secret = "not base64 service account";
+        let error =
+            ServiceAccount::load(secret, std::path::Path::new(".")).expect_err("invalid input");
+        assert!(!error.contains(secret), "{error}");
     }
 
     #[test]
