@@ -293,6 +293,40 @@ mod tests {
     }
 
     #[test]
+    fn app_store_actions_accept_one_api_key_object() {
+        let problems = check(&config(
+            "lanes:\n  ship:\n    steps:\n      - action: testflight\n        with:\n          ipa: build/App.ipa\n          api_key: object\n      - action: asc_request\n        with:\n          path: /v1/apps\n          api_key: object\n      - action: appstore\n        with:\n          bundle_id: com.example.app\n          version: 1.0.0\n          api_key: object\n      - action: provisioning_profile\n        with:\n          name: App Store\n          api_key: object\n      - action: certificate\n        with:\n          api_key: object\n",
+        ));
+        assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn app_store_actions_reject_mixed_credentials() {
+        let problems = check(&config(
+            "lanes:\n  ship:\n    steps:\n      - action: asc_request\n        with:\n          path: /v1/apps\n          api_key: object\n          key_id: old\n",
+        ));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("either api_key or")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn app_store_actions_reject_partial_legacy_credentials() {
+        let problems = check(&config(
+            "lanes:\n  ship:\n    steps:\n      - action: testflight\n        with:\n          ipa: build/App.ipa\n          key_id: old\n",
+        ));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("issuer_id, key")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn duplicate_step_ids_are_reported() {
         let problems = check(&config(
             "lanes:\n  a:\n    steps:\n      - run: \"true\"\n        id: x\n      - run: \"true\"\n        id: x\n",

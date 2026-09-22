@@ -115,6 +115,13 @@ pub trait Action {
     fn validate_args(&self, _provided: &BTreeMap<String, String>) -> Vec<String> {
         Vec::new()
     }
+    /// Arguments a migration must fill so its generated config validates.
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        self.schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect()
+    }
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput>;
 }
 

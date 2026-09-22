@@ -36,6 +36,16 @@ pub fn credential_args() -> Vec<ArgSpec> {
     ]
 }
 
+/// The one credential placeholder a migration should emit for Apple actions.
+pub fn migration_credential_arg() -> ArgSpec {
+    ArgSpec::new(
+        "api_key",
+        "JSON or base64 JSON with keyId, issuerId and authKey",
+    )
+    .required()
+    .sensitive()
+}
+
 /// Validate that callers supply either the legacy triplet or one key object.
 pub fn credential_problems(provided: &BTreeMap<String, String>) -> Vec<String> {
     let has_object = provided.contains_key("api_key");
@@ -80,6 +90,18 @@ pub fn load_credential(args: &Args, root: &Path) -> Result<ApiKey, String> {
     )
 }
 
+/// The identifiers an uploader needs before it reads the private key.
+pub fn credential_identity(args: &Args) -> Result<(String, String), String> {
+    if let Some(value) = args.get("api_key") {
+        let object = parse_object(value)?;
+        return Ok((object.key_id, object.issuer_id));
+    }
+    Ok((
+        args.get_or("key_id", "").to_string(),
+        args.get_or("issuer_id", "").to_string(),
+    ))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CredentialObject {
@@ -92,16 +114,22 @@ struct CredentialObject {
 }
 
 fn load_object(value: &str, root: &Path) -> Result<ApiKey, String> {
+    let object = parse_object(value)?;
+    ApiKey::load(&object.key_id, &object.issuer_id, &object.auth_key, root)
+}
+
+fn parse_object(value: &str) -> Result<CredentialObject, String> {
     let text = if value.trim_start().starts_with('{') {
         value.to_string()
     } else {
-        let bytes = decode_base64(value)
-            .map_err(|_| "api_key must be JSON or base64 JSON".to_string())?;
+        let bytes =
+            decode_base64(value).map_err(|_| "api_key must be JSON or base64 JSON".to_string())?;
         String::from_utf8(bytes)
             .map_err(|_| "api_key base64 must decode to UTF-8 JSON".to_string())?
     };
-    let object: CredentialObject = serde_yaml::from_str(&text)
-        .map_err(|_| "api_key must be a JSON object with keyId, issuerId and authKey".to_string())?;
+    let object: CredentialObject = serde_yaml::from_str(&text).map_err(|_| {
+        "api_key must be a JSON object with keyId, issuerId and authKey".to_string()
+    })?;
 
     if object.key_id.trim().is_empty()
         || object.issuer_id.trim().is_empty()
@@ -110,7 +138,7 @@ fn load_object(value: &str, root: &Path) -> Result<ApiKey, String> {
         return Err("api_key fields keyId, issuerId and authKey must not be empty".to_string());
     }
 
-    ApiKey::load(&object.key_id, &object.issuer_id, &object.auth_key, root)
+    Ok(object)
 }
 
 impl ApiKey {
