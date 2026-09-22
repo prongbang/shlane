@@ -38,6 +38,7 @@ of about 200 lines — to a tool that can stand in for
 | [16-whats-left.md](16-whats-left.md) | What remains at 0.3.0, checked against the code |
 | [17-linux-windows-verification.md](17-linux-windows-verification.md) | The checklist for running the Linux and Windows binaries on real machines |
 | [18-asc-api-key-object.md](18-asc-api-key-object.md) | Apple and Play Store JSON/base64 credentials |
+| [18-store-credential-objects.md](18-store-credential-objects.md) | Apple and Play Store JSON/base64 credentials in v0.3.0 |
 | [19-store-credential-objects-implementation.md](19-store-credential-objects-implementation.md) | v0.3.0 implementation plan for store credentials |
 
 ## How to read it
