@@ -5,36 +5,27 @@
 //! `codesign_sync` is: issuing or revoking a certificate is how a team loses
 //! the ability to ship, and a tool that can do it by accident will.
 
-use crate::actions::asc::{token, ApiKey};
+use crate::actions::asc::{
+    credential_args, credential_problems, load_credential, migration_credential_arg, token,
+};
 use crate::actions::context::ActionContext;
 use crate::actions::google::decode_base64;
 use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::Result;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 const API: &str = "https://api.appstoreconnect.apple.com";
 
 /// The arguments every App Store Connect action needs.
 fn key_args() -> Vec<ArgSpec> {
-    vec![
-        ArgSpec::new("key_id", "App Store Connect key id").required(),
-        ArgSpec::new("issuer_id", "App Store Connect issuer id").required(),
-        ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it")
-            .required()
-            .sensitive(),
-    ]
+    credential_args()
 }
 
 fn get(ctx: &ActionContext<'_>, action: &str, path: &str, args: &Args) -> Result<String> {
     use crate::actions::core::http::{send, Payload};
 
-    let key = ApiKey::load(
-        args.get_or("key_id", ""),
-        args.get_or("issuer_id", ""),
-        args.get_or("key", ""),
-        ctx.workdir(),
-    )
-    .map_err(|message| ctx.error(action, message))?;
+    let key = load_credential(args, ctx.workdir()).map_err(|message| ctx.error(action, message))?;
     let bearer = token(&key).map_err(|message| ctx.error(action, message))?;
 
     let url = format!("{API}{path}");
@@ -113,6 +104,20 @@ impl Action for ProvisioningProfile {
         ];
         schema.extend(key_args());
         schema
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        credential_problems(provided)
+    }
+
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        let mut required: Vec<ArgSpec> = self
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect();
+        required.push(migration_credential_arg());
+        required
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
@@ -244,6 +249,20 @@ impl Action for Certificate {
         ];
         schema.extend(key_args());
         schema
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        credential_problems(provided)
+    }
+
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        let mut required: Vec<ArgSpec> = self
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect();
+        required.push(migration_credential_arg());
+        required
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {

@@ -4,7 +4,10 @@
 //! it needs Xcode, so the round trip is e2e work on a macOS runner
 //! (`docs/plan/13-testing-and-quality.md`).
 
-use crate::actions::asc::{token, ApiKey};
+use crate::actions::asc::{
+    credential_args, credential_identity, credential_problems, load_credential,
+    migration_credential_arg, token,
+};
 use crate::actions::context::ActionContext;
 use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::Result;
@@ -522,28 +525,37 @@ impl Action for TestFlight {
     }
 
     fn schema(&self) -> Vec<ArgSpec> {
-        vec![
-            ArgSpec::new("ipa", "The .ipa to upload").required(),
-            ArgSpec::new("key_id", "App Store Connect key id").required(),
-            ArgSpec::new("issuer_id", "App Store Connect issuer id").required(),
-            ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it")
-                .required()
-                .sensitive(),
-            ArgSpec::new("platform", "ios, appletvos or osx").default("ios"),
-        ]
+        let mut schema = vec![ArgSpec::new("ipa", "The .ipa to upload").required()];
+        schema.extend(credential_args());
+        schema.push(ArgSpec::new("platform", "ios, appletvos or osx").default("ios"));
+        schema
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        credential_problems(provided)
+    }
+
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        let mut required: Vec<ArgSpec> = self
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect();
+        required.push(migration_credential_arg());
+        required
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
         let ipa = ctx.workdir().join(args.get_or("ipa", ""));
-        let key_id = args.get_or("key_id", "");
-        let issuer = args.get_or("issuer_id", "");
+        let (key_id, issuer) =
+            credential_identity(args).map_err(|message| ctx.error(self.name(), message))?;
 
         let command = format!(
             "xcrun altool --upload-app -f {} -t {} --apiKey {} --apiIssuer {}",
             quote(&ipa.display().to_string()),
             quote(args.get_or("platform", "ios")),
-            quote(key_id),
-            quote(issuer)
+            quote(&key_id),
+            quote(&issuer)
         );
 
         if ctx.dry_run {
@@ -555,7 +567,7 @@ impl Action for TestFlight {
             return Err(ctx.error(self.name(), format!("{} does not exist", ipa.display())));
         }
 
-        let key = ApiKey::load(key_id, issuer, args.get_or("key", ""), ctx.workdir())
+        let key = load_credential(args, ctx.workdir())
             .map_err(|message| ctx.error(self.name(), message))?;
 
         // altool looks for AuthKey_<id>.p8 in a directory it is told about,
@@ -621,7 +633,7 @@ impl Action for AscRequest {
     }
 
     fn schema(&self) -> Vec<ArgSpec> {
-        vec![
+        let mut schema = vec![
             ArgSpec::new(
                 "path",
                 "Path under https://api.appstoreconnect.apple.com, e.g. /v1/apps",
@@ -629,12 +641,23 @@ impl Action for AscRequest {
             .required(),
             ArgSpec::new("method", "GET, POST, PATCH, ...").default("GET"),
             ArgSpec::new("body", "Request body, for the methods that take one"),
-            ArgSpec::new("key_id", "App Store Connect key id").required(),
-            ArgSpec::new("issuer_id", "App Store Connect issuer id").required(),
-            ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it")
-                .required()
-                .sensitive(),
-        ]
+        ];
+        schema.extend(credential_args());
+        schema
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        credential_problems(provided)
+    }
+
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        let mut required: Vec<ArgSpec> = self
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect();
+        required.push(migration_credential_arg());
+        required
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
@@ -648,13 +671,8 @@ impl Action for AscRequest {
             return Ok(ActionOutput::new().with("status", "0"));
         }
 
-        let key = ApiKey::load(
-            args.get_or("key_id", ""),
-            args.get_or("issuer_id", ""),
-            args.get_or("key", ""),
-            ctx.workdir(),
-        )
-        .map_err(|message| ctx.error(self.name(), message))?;
+        let key = load_credential(args, ctx.workdir())
+            .map_err(|message| ctx.error(self.name(), message))?;
 
         let bearer = token(&key).map_err(|message| ctx.error(self.name(), message))?;
         ctx.mark_secret(&bearer);

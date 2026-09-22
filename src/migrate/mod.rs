@@ -203,8 +203,8 @@ fn statement(line: &str, migration: &mut Migration) -> Step {
     // visible in one place rather than appearing one failed run at a time.
     let registry = crate::actions::Registry::builtins();
     if let Some(action) = registry.find(mapping.shlane) {
-        for spec in action.schema() {
-            if !spec.required || converted.iter().any(|(key, _)| key == &spec.name) {
+        for spec in action.migration_required_args() {
+            if converted.iter().any(|(key, _)| key == &spec.name) {
                 continue;
             }
             migration.notes.push(format!(
@@ -511,6 +511,19 @@ end
                 .notes
                 .iter()
                 .any(|note| note.contains("fill in `ipa`")),
+            "{:?}",
+            migration.notes
+        );
+        assert!(
+            migration.yaml.contains("api_key: \"TODO-api_key\""),
+            "{}",
+            migration.yaml
+        );
+        assert!(
+            migration
+                .notes
+                .iter()
+                .any(|note| note.contains("fill in `api_key`")),
             "{:?}",
             migration.notes
         );

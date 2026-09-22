@@ -7,11 +7,14 @@
 //! the transporter protocol would be a large amount of machinery to replace a
 //! tool every macOS runner already has.
 
-use crate::actions::asc::{token, ApiKey};
+use crate::actions::asc::{
+    credential_args, credential_problems, load_credential, migration_credential_arg, token,
+};
 use crate::actions::context::ActionContext;
 use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::{Result, ShlaneError};
 use serde_yaml::Value;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 const API: &str = "https://api.appstoreconnect.apple.com";
@@ -43,7 +46,7 @@ impl Action for AppStore {
     }
 
     fn schema(&self) -> Vec<ArgSpec> {
-        vec![
+        let mut schema = vec![
             ArgSpec::new("bundle_id", "The app's bundle identifier").required(),
             ArgSpec::new("version", "Marketing version, e.g. 1.4.2").required(),
             ArgSpec::new("platform", "IOS, MAC_OS or TV_OS").default("IOS"),
@@ -65,12 +68,23 @@ impl Action for AppStore {
                 "Send the version for review once the metadata is in",
             )
             .default("false"),
-            ArgSpec::new("key_id", "App Store Connect key id").required(),
-            ArgSpec::new("issuer_id", "App Store Connect issuer id").required(),
-            ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it")
-                .required()
-                .sensitive(),
-        ]
+        ];
+        schema.extend(credential_args());
+        schema
+    }
+
+    fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+        credential_problems(provided)
+    }
+
+    fn migration_required_args(&self) -> Vec<ArgSpec> {
+        let mut required: Vec<ArgSpec> = self
+            .schema()
+            .into_iter()
+            .filter(|spec| spec.required)
+            .collect();
+        required.push(migration_credential_arg());
+        required
     }
 
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput> {
@@ -200,13 +214,8 @@ struct Client {
 
 impl Client {
     fn new(action: &'static str, ctx: &ActionContext<'_>, args: &Args) -> Result<Self> {
-        let key = ApiKey::load(
-            args.get_or("key_id", ""),
-            args.get_or("issuer_id", ""),
-            args.get_or("key", ""),
-            ctx.workdir(),
-        )
-        .map_err(|message| ctx.error(action, message))?;
+        let key =
+            load_credential(args, ctx.workdir()).map_err(|message| ctx.error(action, message))?;
         let bearer = token(&key).map_err(|message| ctx.error(action, message))?;
         Ok(Self { action, bearer })
     }
