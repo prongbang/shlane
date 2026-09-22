@@ -23,9 +23,7 @@ lanes:
       - action: testflight
         with:
           ipa: ${steps.build.ipa}
-          key_id: ${ASC_KEY_ID}
-          issuer_id: ${ASC_ISSUER_ID}
-          key: ${ASC_KEY_P8}
+          api_key: ${ASC_API_KEY}
 ```
 
 ```sh
@@ -353,7 +351,7 @@ lanes:
           package_name: com.example.app
           aab: ${steps.build.aab}
           track: internal
-          service_account_json: ${PLAY_SERVICE_ACCOUNT}
+          service_account_json: ${PLAY_SERVICE_ACCOUNT_BASE64}
 ```
 
 Gradle does not say where it put things, so `build_android` finds the artifact and
@@ -361,11 +359,12 @@ publishes its path. A property whose name looks sensitive is passed as
 `ORG_GRADLE_PROJECT_<NAME>` instead of `-P<name>=` — a command line is visible in `ps`
 and in most CI logs — and its value is masked on the way back.
 
-`play_store` signs its own service-account JWT, so there is no `gcloud` to install. It
-opens an edit, uploads, points the track at the new version code and commits, so a
-failure part-way leaves the store untouched. **Its request shapes are unit-tested; the
-round trip against Google is not.** `firebase_distribution` wraps the `firebase` CLI,
-which must be installed.
+`play_store` signs its own service-account JWT, so there is no `gcloud` to install. Its
+`service_account_json` accepts raw JSON, a path to an existing JSON file, or Base64(JSON)
+from a CI secret. It opens an edit, uploads, points the track at the new version code and
+commits, so a failure part-way leaves the store untouched. **Its request shapes are
+unit-tested; the round trip against Google is not.** `firebase_distribution` wraps the
+`firebase` CLI, which must be installed.
 
 [`examples/android-sample`](https://github.com/prongbang/shlane/tree/master/examples/android-sample) is a small Java app with unit
 tests. CI runs its tests, builds an unsigned APK and AAB, and signs both with
@@ -408,9 +407,7 @@ lanes:
       - action: testflight
         with:
           ipa: ${steps.build.ipa}
-          key_id: ${ASC_KEY_ID}
-          issuer_id: ${ASC_ISSUER_ID}
-          key: ${ASC_KEY_P8}          # PEM, base64 of it, or a path
+          api_key: ${ASC_API_KEY}
 ```
 
 `build_ios` writes the `ExportOptions.plist` that `-exportArchive` insists on — the
@@ -427,6 +424,15 @@ not be produced is a warning, not a failed lane. It needs Xcode 16 or newer.
 `asc_request` signs an ES256 token and calls any App Store Connect endpoint, so the
 parts of the API without a dedicated action are still reachable.
 
+Every App Store Connect action accepts `api_key` as raw JSON or Base64(JSON):
+
+```json
+{"keyId":"ABC123","issuerId":"69a6de7e-0000-0000-0000-000000000000","authKey":"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"}
+```
+
+`authKey` can itself be PEM, base64 PEM, or a path. The legacy `key_id`, `issuer_id`,
+and `key` triplet remains available, but a step must use exactly one credential shape.
+
 `appstore` is deliver's half of the job — the metadata, not the binary:
 
 ```yaml
@@ -438,9 +444,7 @@ parts of the API without a dedicated action are still reachable.
           whats_new: "Fixed the crash on launch"   # wins over the file, for this locale
           build: "${steps.built.build_number}"
           submit_for_review: false
-          key_id: ${ASC_KEY_ID}
-          issuer_id: ${ASC_ISSUER_ID}
-          key: ${ASC_KEY_P8}
+          api_key: ${ASC_API_KEY}
 ```
 
 It reads a fastlane-shaped metadata directory, so a project moving over keeps the files
@@ -717,7 +721,7 @@ the same tables `shlane migrate` uses, and a test fails when the two differ.
 <!-- ANCHOR: on-ci -->
 
 ```yaml
-- uses: prongbang/shlane@v0.2.3
+- uses: prongbang/shlane@v0.3.0
   with:
     lane: beta
     params: target=production

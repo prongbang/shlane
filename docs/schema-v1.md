@@ -145,6 +145,17 @@ Two rules that do not change:
 `if:` is a Rhai expression, not a template: shell quoting rules do not apply
 inside Rhai, so substituting into one would mis-quote it with nothing to notice.
 
+## Store credentials
+
+All App Store Connect actions accept either the legacy `key_id`, `issuer_id`, and `key`
+arguments together, or one sensitive `api_key` value. `api_key` is raw JSON or
+Base64(JSON) with exactly `keyId`, `issuerId`, and `authKey`; `authKey` can be PEM,
+base64 PEM, or a path relative to the configuration. Mixing the two forms is refused.
+
+`play_store.service_account_json` accepts raw Google service-account JSON, a path to an
+existing JSON file, or Base64(JSON). Neither credential form is written to a temporary
+file by shlane.
+
 ## Environment precedence
 
 Highest wins:

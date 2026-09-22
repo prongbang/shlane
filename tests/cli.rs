@@ -1943,9 +1943,7 @@ fn testflight_checks_its_arguments_before_anything_else() {
     sandbox
         .run(&["validate"])
         .assert_code(2)
-        .assert_stderr_contains("needs 'key_id'")
-        .assert_stderr_contains("needs 'issuer_id'")
-        .assert_stderr_contains("needs 'key'");
+        .assert_stderr_contains("needs api_key or key_id, issuer_id and key");
 }
 
 #[test]
@@ -3637,7 +3635,7 @@ lanes:
     let run = sandbox.run(&["validate"]);
     run.assert_code(2)
         .assert_stderr_contains("action 'appstore' needs 'version'")
-        .assert_stderr_contains("action 'appstore' needs 'key_id'");
+        .assert_stderr_contains("needs api_key or key_id, issuer_id and key");
 }
 
 #[test]
