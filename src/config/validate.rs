@@ -327,6 +327,17 @@ mod tests {
     }
 
     #[test]
+    fn app_store_actions_reject_empty_legacy_credentials() {
+        let problems = check(&config(
+            "lanes:\n  ship:\n    steps:\n      - action: testflight\n        with:\n          ipa: build/App.ipa\n          key_id: ''\n          issuer_id: issuer\n          key: key\n",
+        ));
+        assert!(
+            problems.iter().any(|problem| problem.contains("key_id")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn duplicate_step_ids_are_reported() {
         let problems = check(&config(
             "lanes:\n  a:\n    steps:\n      - run: \"true\"\n        id: x\n      - run: \"true\"\n        id: x\n",
