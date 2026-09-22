@@ -66,9 +66,7 @@ it writes `shlane.yaml` and prints what is left for you:
 
 What needs a person:
   - `pilot` -> `testflight`: fill in `ipa` (The .ipa to upload); ...
-  - `pilot` -> `testflight`: fill in `key_id` (App Store Connect key id); ...
-  - `pilot` -> `testflight`: fill in `issuer_id` (App Store Connect issuer id); ...
-  - `pilot` -> `testflight`: fill in `key` (The .p8 itself, base64 of it, or a path to it); ...
+  - `pilot` -> `testflight`: fill in `api_key` (JSON or base64 JSON with keyId, issuerId and authKey); ...
   - `supply` -> `play_store`: fill in `package_name` (Application id, e.g. com.example.app); ...
   - `fastlane ios test` is `shlane run ios_test`: shlane lane names are not scoped by platform
   - `fastlane android test` is `shlane run android_test`: shlane lane names are not scoped by platform
@@ -82,7 +80,7 @@ shlane validate
 
 ```
 error: shlane.yaml has 2 problem(s):
-  - 'beta': action 'testflight' has no argument 'skip_waiting_for_build_processing' (it takes: ipa, key_id, issuer_id, key, platform)
+  - 'beta': action 'testflight' has no argument 'skip_waiting_for_build_processing' (it takes: ipa, key_id, issuer_id, key, api_key, platform)
   - 'deploy': action 'gradle' has no argument 'build_type' (it takes: task, project_dir, properties, flags, wrapper)
 ```
 
@@ -117,9 +115,7 @@ For the Fastfile above, `beta` and `deploy` end up like this:
       - action: testflight
         with:
           ipa: ${steps.build.ipa}
-          key_id: ${ASC_KEY_ID}
-          issuer_id: ${ASC_ISSUER_ID}
-          key: ${ASC_KEY}             # masked in every log line
+          api_key: ${ASC_API_KEY}      # JSON or Base64(JSON), masked in every log line
       - action: notify_slack
         with:
           text: "iOS beta is on TestFlight"
@@ -138,7 +134,7 @@ For the Fastfile above, `beta` and `deploy` end up like this:
       - action: play_store
         with:
           track: "${track}"
-          service_account_json: "play-key.json"
+          service_account_json: ${PLAY_SERVICE_ACCOUNT_BASE64}
           aab: ${steps.bundle.aab}
           package_name: com.example.app
 ```
@@ -186,7 +182,7 @@ and uploads last.
 On GitHub Actions:
 
 ```yaml
-- uses: prongbang/shlane@v0.2.3
+- uses: prongbang/shlane@v0.3.0
   with:
     lane: beta
     args: --report junit:reports/shlane.xml

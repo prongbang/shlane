@@ -1,6 +1,6 @@
 # 16 — What is left
 
-Where the project stands at `0.2.3`, and what remains. Written to be picked up on
+Where the project stands at `0.3.0`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
@@ -36,7 +36,8 @@ run as debugging, not as confirmation.
 
 ## Release
 
-`v0.2.3` is the latest, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.3)
+`v0.3.0` is the next release, with Apple JSON/Base64 credentials and Play Base64(JSON).
+The latest published release is `v0.2.3`, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.3)
 and [crates.io](https://crates.io/crates/shlane), both from the tagged commit: macOS
 (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
 The macOS arm64 binary and `install.sh` have been run by hand; the others have only
@@ -78,7 +79,7 @@ Teams channel with them yet.
   `increment_build_number` now converts to `agvtool` as fastlane runs it.
 - **No documentation site.** The README, `docs/schema-v1.md` and `docs/plan/` cover
   the content; this is packaging, not writing.
-- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.2.3` in the README
+- **The GitHub Action is pinned by exact tag** (`prongbang/shlane@v0.3.0` in the README
   and the guide). There is no moving `v0`/`v1` tag, so each release means updating
   both.
 - **There is no `ios:` block** for Appfile values, although plan 12 names one. `migrate`

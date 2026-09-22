@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
+### Added
+
+- **One Apple credential secret for every App Store Connect action.** `testflight`,
+  `asc_request`, `appstore`, `provisioning_profile`, and `certificate` now accept
+  `api_key` as JSON or base64 JSON containing `keyId`, `issuerId`, and `authKey`.
+  The previous `key_id`, `issuer_id`, and `key` triplet remains supported.
+- **Base64 Google Play service accounts.** `play_store.service_account_json` now
+  accepts raw JSON, an existing JSON file, or base64 JSON without writing the decoded
+  credential to disk.
+
 ## [0.2.3] - 2026-09-19
 
 ### Changed
