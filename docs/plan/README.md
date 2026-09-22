@@ -37,6 +37,8 @@ of about 200 lines — to a tool that can stand in for
 | [15-roadmap.md](15-roadmap.md) | Milestones M0–M7, the order of work, and the risks |
 | [16-whats-left.md](16-whats-left.md) | What remains at 0.2.3, checked against the code |
 | [17-linux-windows-verification.md](17-linux-windows-verification.md) | The checklist for running the Linux and Windows binaries on real machines |
+| [18-asc-api-key-object.md](18-asc-api-key-object.md) | Apple and Play Store JSON/base64 credentials |
+| [19-store-credential-objects-implementation.md](19-store-credential-objects-implementation.md) | v0.3.0 implementation plan for store credentials |
 
 ## How to read it
 
