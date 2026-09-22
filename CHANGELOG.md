@@ -6,11 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-22
+
 ### Added
 
 - **`asc_api_key`** packs `key_id`, `issuer_id` and `key` (PEM, base64 or a path),
-  or `key_path` (always read as a file), into the base64 `{keyId, issuerId, authKey}` object that `api_key` reads, so a lane
-  can move to one credential without hand-building JSON. The result is masked.
+  or `key_path` (always read as a file), into the base64 `{keyId, issuerId, authKey}`
+  object that `api_key` reads, so a lane can move to one credential without
+  hand-building JSON. The result is masked.
 - **`shlane action run <name> key=value...`** runs one built-in action with no
   `shlane.yaml` and prints its outputs; a single output prints as its bare value, so
   `API_KEY=$(shlane action run asc_api_key key_id=... issuer_id=... key=...)` works.
@@ -64,6 +67,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paths. It now converts them
   with `cygpath`, and runs the `install.sh` that ships with the action rather than
   whatever is on `master`, so the script and the action are always the same version.
+
+## [0.3.0] - 2026-09-22
+
+### Added
+
+- **One Apple credential secret for every App Store Connect action.** `testflight`,
+  `asc_request`, `appstore`, `provisioning_profile`, and `certificate` now accept
+  `api_key` as JSON or base64 JSON containing `keyId`, `issuerId`, and `authKey`.
+  The previous `key_id`, `issuer_id`, and `key` triplet remains supported.
+- **Base64 Google Play service accounts.** `play_store.service_account_json` now
+  accepts raw JSON, an existing JSON file, or base64 JSON without writing the decoded
+  credential to disk.
 
 ## [0.2.3] - 2026-09-19
 

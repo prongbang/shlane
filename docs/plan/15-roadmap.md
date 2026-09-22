@@ -147,7 +147,7 @@ all.
 >
 > `cargo publish --dry-run` passes, with `exclude` keeping the plan, the benchmarks and
 > the sample projects out of what a `cargo install` downloads, and CI runs the dry run so
-> it cannot regress. `v0.3.0` is the next release; `v0.2.3` remains the latest published
+> it cannot regress. `v0.4.0` is the next release; `v0.2.3` remains the latest published
 > tag on GitHub Releases and crates.io until the release workflow completes.
 >
 > The documentation site is done: `docs/site/` is an mdBook, published to

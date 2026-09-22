@@ -1,6 +1,6 @@
 # 16 — What is left
 
-Where the project stands at `0.3.0`, and what remains. Written to be picked up on
+Where the project stands at `0.4.0`, and what remains. Written to be picked up on
 another machine: each item says what to do, where, and how to know it worked.
 
 Checked against the code rather than the plan — `shlane action list` reports 40
@@ -37,7 +37,8 @@ run as debugging, not as confirmation.
 
 ## Release
 
-`v0.3.0` is the next release, with Apple JSON/Base64 credentials and Play Base64(JSON).
+`v0.4.0` is the next release: `asc_api_key`, `shlane action run`, and the fixes merged
+after `0.3.0` (which reached crates.io but has no GitHub release).
 The latest published release is `v0.2.3`, on [GitHub Releases](https://github.com/prongbang/shlane/releases/tag/v0.2.3)
 and [crates.io](https://crates.io/crates/shlane), both from the tagged commit: macOS
 (arm64, x86-64), Linux (x86-64, arm64, musl) and Windows (x86-64), with `SHA256SUMS`.
