@@ -111,6 +111,10 @@ pub trait Action {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn schema(&self) -> Vec<ArgSpec>;
+    /// Extra validation for relationships between action arguments.
+    fn validate_args(&self, _provided: &BTreeMap<String, String>) -> Vec<String> {
+        Vec::new()
+    }
     fn run(&self, ctx: &mut ActionContext<'_>, args: &Args) -> Result<ActionOutput>;
 }
 
@@ -151,6 +155,8 @@ pub fn check_args(action: &dyn Action, provided: &BTreeMap<String, String>) -> V
             ));
         }
     }
+
+    problems.extend(action.validate_args(provided));
 
     problems
 }
@@ -287,5 +293,39 @@ mod tests {
         assert!(args.flag("b"));
         assert!(!args.flag("c"));
         assert!(!args.flag("missing"));
+    }
+
+    struct ValidatedAction;
+
+    impl Action for ValidatedAction {
+        fn name(&self) -> &'static str {
+            "validated"
+        }
+
+        fn description(&self) -> &'static str {
+            "A test action with cross-field validation"
+        }
+
+        fn schema(&self) -> Vec<ArgSpec> {
+            vec![ArgSpec::new("credential", "A credential")]
+        }
+
+        fn validate_args(&self, provided: &BTreeMap<String, String>) -> Vec<String> {
+            if provided.contains_key("credential") {
+                Vec::new()
+            } else {
+                vec!["needs credential".to_string()]
+            }
+        }
+
+        fn run(&self, _ctx: &mut ActionContext<'_>, _args: &Args) -> Result<ActionOutput> {
+            Ok(ActionOutput::new())
+        }
+    }
+
+    #[test]
+    fn actions_can_add_cross_field_validation_errors() {
+        let problems = check_args(&ValidatedAction, &args(&[]));
+        assert_eq!(problems, ["needs credential"]);
     }
 }
