@@ -48,7 +48,9 @@ pub fn migration_credential_arg() -> ArgSpec {
 
 /// Validate that callers supply either the legacy triplet or one key object.
 pub fn credential_problems(provided: &BTreeMap<String, String>) -> Vec<String> {
-    let has_object = provided.contains_key("api_key");
+    let has_object = provided
+        .get("api_key")
+        .is_some_and(|value| !value.trim().is_empty());
     let legacy = ["key_id", "issuer_id", "key"];
     let supplied_legacy: Vec<&str> = legacy
         .iter()

@@ -338,6 +338,19 @@ mod tests {
     }
 
     #[test]
+    fn app_store_actions_reject_an_empty_api_key_object() {
+        let problems = check(&config(
+            "lanes:\n  ship:\n    steps:\n      - action: asc_request\n        with:\n          path: /v1/apps\n          api_key: '   '\n",
+        ));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("needs api_key or key_id")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn duplicate_step_ids_are_reported() {
         let problems = check(&config(
             "lanes:\n  a:\n    steps:\n      - run: \"true\"\n        id: x\n      - run: \"true\"\n        id: x\n",
