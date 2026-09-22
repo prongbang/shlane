@@ -4,6 +4,10 @@
 //! valid for at most 20 minutes. `ring` signs it; it is already in the tree.
 
 use super::google::{base64url, decode_base64, pem_to_der};
+use crate::actions::{ArgSpec, Args};
+use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Apple rejects anything longer than 20 minutes.
@@ -16,6 +20,97 @@ pub struct ApiKey {
     pub issuer_id: String,
     /// The `.p8` contents, in PEM.
     pub private_key: String,
+}
+
+/// The arguments that select one App Store Connect authentication shape.
+pub fn credential_args() -> Vec<ArgSpec> {
+    vec![
+        ArgSpec::new("key_id", "App Store Connect key id"),
+        ArgSpec::new("issuer_id", "App Store Connect issuer id"),
+        ArgSpec::new("key", "The .p8 itself, base64 of it, or a path to it").sensitive(),
+        ArgSpec::new(
+            "api_key",
+            "JSON or base64 JSON with keyId, issuerId and authKey",
+        )
+        .sensitive(),
+    ]
+}
+
+/// Validate that callers supply either the legacy triplet or one key object.
+pub fn credential_problems(provided: &BTreeMap<String, String>) -> Vec<String> {
+    let has_object = provided.contains_key("api_key");
+    let legacy = ["key_id", "issuer_id", "key"];
+    let supplied_legacy: Vec<&str> = legacy
+        .iter()
+        .copied()
+        .filter(|name| provided.contains_key(*name))
+        .collect();
+
+    if has_object && !supplied_legacy.is_empty() {
+        return vec!["needs either api_key or key_id, issuer_id and key, not both".to_string()];
+    }
+    if has_object || supplied_legacy.len() == legacy.len() {
+        return Vec::new();
+    }
+    if supplied_legacy.is_empty() {
+        return vec!["needs api_key or key_id, issuer_id and key".to_string()];
+    }
+
+    let missing: Vec<&str> = legacy
+        .iter()
+        .copied()
+        .filter(|name| !provided.contains_key(*name))
+        .collect();
+    vec![format!(
+        "needs api_key or the remaining legacy arguments: {}",
+        missing.join(", ")
+    )]
+}
+
+/// Load the credential shape an App Store Connect action received.
+pub fn load_credential(args: &Args, root: &Path) -> Result<ApiKey, String> {
+    if let Some(value) = args.get("api_key") {
+        return load_object(value, root);
+    }
+    ApiKey::load(
+        args.get_or("key_id", ""),
+        args.get_or("issuer_id", ""),
+        args.get_or("key", ""),
+        root,
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialObject {
+    #[serde(rename = "keyId")]
+    key_id: String,
+    #[serde(rename = "issuerId")]
+    issuer_id: String,
+    #[serde(rename = "authKey")]
+    auth_key: String,
+}
+
+fn load_object(value: &str, root: &Path) -> Result<ApiKey, String> {
+    let text = if value.trim_start().starts_with('{') {
+        value.to_string()
+    } else {
+        let bytes = decode_base64(value)
+            .map_err(|_| "api_key must be JSON or base64 JSON".to_string())?;
+        String::from_utf8(bytes)
+            .map_err(|_| "api_key base64 must decode to UTF-8 JSON".to_string())?
+    };
+    let object: CredentialObject = serde_yaml::from_str(&text)
+        .map_err(|_| "api_key must be a JSON object with keyId, issuerId and authKey".to_string())?;
+
+    if object.key_id.trim().is_empty()
+        || object.issuer_id.trim().is_empty()
+        || object.auth_key.trim().is_empty()
+    {
+        return Err("api_key fields keyId, issuerId and authKey must not be empty".to_string());
+    }
+
+    ApiKey::load(&object.key_id, &object.issuer_id, &object.auth_key, root)
 }
 
 impl ApiKey {
@@ -99,6 +194,27 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    fn encode_base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let triple = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            for position in 0..4 {
+                if position <= chunk.len() {
+                    out.push(ALPHABET[((triple >> (18 - position * 6)) & 0x3F) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
     fn key() -> ApiKey {
         ApiKey {
             key_id: "ABC123".to_string(),
@@ -180,5 +296,37 @@ mod tests {
     #[test]
     fn rejects_something_that_is_not_a_key() {
         assert!(ApiKey::load("K", "I", "not a key at all", Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn reads_an_apple_key_object_from_json() {
+        let key = load_object(
+            r#"{"keyId":"K","issuerId":"I","authKey":"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"}"#,
+            Path::new("."),
+        )
+        .expect("valid object");
+        assert_eq!(key.key_id, "K");
+        assert_eq!(key.issuer_id, "I");
+        assert!(key.private_key.contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn reads_an_apple_key_object_from_base64() {
+        let encoded = encode_base64(
+            br#"{"keyId":"K","issuerId":"I","authKey":"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"}"#,
+        );
+        let key = load_object(&encoded, Path::new(".")).expect("valid object");
+        assert_eq!(key.key_id, "K");
+        assert_eq!(key.issuer_id, "I");
+    }
+
+    #[test]
+    fn apple_credential_errors_do_not_echo_the_input() {
+        let secret = "not-base64-secret";
+        let error = match load_object(secret, Path::new(".")) {
+            Ok(_) => panic!("invalid input should fail"),
+            Err(error) => error,
+        };
+        assert!(!error.contains(secret), "{error}");
     }
 }
