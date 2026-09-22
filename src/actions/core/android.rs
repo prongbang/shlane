@@ -552,8 +552,12 @@ impl Action for SignAndroid {
                 "output",
                 "Where to write the signed file; defaults to in place",
             ),
-            ArgSpec::new("keystore", "Path to the keystore"),
-            ArgSpec::new("keystore_base64", "The keystore itself, base64 encoded").sensitive(),
+            ArgSpec::new(
+                "keystore_file",
+                "Path to the keystore, or the keystore itself base64 encoded",
+            )
+            .required()
+            .sensitive(),
             ArgSpec::new("keystore_password", "Keystore password")
                 .required()
                 .sensitive(),
@@ -581,11 +585,17 @@ impl Action for SignAndroid {
 
         // Keep the decoded keystore next to the artifact and remove it after.
         let _temporary;
-        let keystore = match (args.get("keystore"), args.get("keystore_base64")) {
-            (Some(path), _) => ctx.workdir().join(path),
-            (None, Some(encoded)) => {
-                let bytes = decode_base64(encoded).map_err(|message| {
-                    ctx.error(self.name(), format!("keystore_base64: {message}"))
+        // A file that exists wins; anything else has to be base64, which is how
+        // CI carries a binary keystore in a secret.
+        let given = args.get_or("keystore_file", "");
+        let keystore = match ctx.workdir().join(given.trim()) {
+            path if path.is_file() => path,
+            _ => {
+                let bytes = decode_base64(given).map_err(|_| {
+                    ctx.error(
+                        self.name(),
+                        "keystore_file is neither an existing file nor base64",
+                    )
                 })?;
                 let file = TempFile::write(ctx.workdir(), ".shlane-keystore.jks", &bytes).map_err(
                     |err| ctx.error(self.name(), format!("cannot write keystore: {err}")),
@@ -593,9 +603,6 @@ impl Action for SignAndroid {
                 let path = file.path.clone();
                 _temporary = file;
                 path
-            }
-            (None, None) => {
-                return Err(ctx.error(self.name(), "give either keystore or keystore_base64"))
             }
         };
 

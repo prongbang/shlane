@@ -1700,7 +1700,7 @@ lanes:
         with:
           input: app-release-unsigned.apk
           output: app-release.apk
-          keystore: release.jks
+          keystore_file: release.jks
           keystore_password: pw
           key_alias: release
 "#,
@@ -1738,6 +1738,35 @@ lanes:
             .exists(),
         "the zipaligned intermediate was left behind"
     );
+
+    // The same keystore as base64, the way CI carries it in a secret.
+    std::fs::remove_file(sandbox.path().join("app-release.apk")).unwrap();
+    sandbox.write(
+        "shlane.yaml",
+        r#"
+lanes:
+  sign:
+    steps:
+      - action: sign_android
+        with:
+          input: app-release-unsigned.apk
+          output: app-release.apk
+          keystore_file: a2V5c3RvcmU=
+          keystore_password: pw
+          key_alias: release
+"#,
+    );
+    sandbox
+        .run_with_env(
+            &["run", "sign"],
+            &[("ANDROID_HOME", &sdk.display().to_string())],
+        )
+        .assert_code(0);
+    assert!(sandbox.path().join("app-release.apk").is_file());
+    assert!(
+        !sandbox.path().join(".shlane-keystore.jks").exists(),
+        "the decoded keystore was left behind"
+    );
 }
 
 #[test]
@@ -1757,8 +1786,8 @@ lanes:
 
     sandbox
         .run(&["run", "sign"])
-        .assert_code(1)
-        .assert_stderr_contains("keystore or keystore_base64");
+        .assert_code(2)
+        .assert_stderr_contains("needs 'keystore_file'");
 }
 
 #[test]

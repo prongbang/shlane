@@ -57,7 +57,7 @@ Outputs: `aab` / `apk`, `mapping_txt`, `version_code`, `version_name`.
 - action: sign_android
   with:
     input: ${steps.build.apk}
-    keystore: ${env.ANDROID_KEYSTORE_PATH}      # or keystore_base64
+    keystore_file: ${env.ANDROID_KEYSTORE}      # a path, or base64 of the file
     keystore_password: ${env.KEYSTORE_PASSWORD} # sensitive
     key_alias: upload
     key_password: ${env.KEY_PASSWORD}           # sensitive

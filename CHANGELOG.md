@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `sign_android` takes `keystore_file` in place of `keystore` and
+  `keystore_base64`.** It accepts a path to the keystore or the keystore itself as
+  base64, the way CI carries it in a secret; an existing file wins. A decoded
+  keystore is still written next to the build and removed once signing is over.
+  Rename the argument: `shlane validate` names `keystore_file` for a config that
+  still uses either old one.
+
 ## [0.4.0] - 2026-09-22
 
 ### Added

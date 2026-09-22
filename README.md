@@ -330,7 +330,7 @@ lanes:
 | `gradle` | Run a Gradle task |
 | `build_android` | Assemble an APK or AAB, and report where it landed |
 | `test_android` | Run the unit tests and collect their reports |
-| `sign_android` | Sign with a keystore, from a file or base64 |
+| `sign_android` | Sign with a keystore; `keystore_file` takes a path or base64 |
 | `play_store` | Upload to Google Play |
 | `firebase_distribution` | Distribute through Firebase App Distribution |
 

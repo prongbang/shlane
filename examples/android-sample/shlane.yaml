@@ -42,7 +42,7 @@ lanes:
         with:
           input: ${steps.apk.path}
           output: build/counter-signed.apk
-          keystore: ${SAMPLE_KEYSTORE}
+          keystore_file: ${SAMPLE_KEYSTORE}
           keystore_password: ${SAMPLE_KEYSTORE_PASSWORD}
           key_alias: ${SAMPLE_KEY_ALIAS}
       - id: aab
@@ -53,7 +53,7 @@ lanes:
         with:
           input: ${steps.aab.path}
           output: build/counter-signed.aab
-          keystore: ${SAMPLE_KEYSTORE}
+          keystore_file: ${SAMPLE_KEYSTORE}
           keystore_password: ${SAMPLE_KEYSTORE_PASSWORD}
           key_alias: ${SAMPLE_KEY_ALIAS}
       - run: echo "signed build/counter-signed.apk and build/counter-signed.aab"
