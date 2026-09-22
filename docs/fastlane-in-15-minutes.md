@@ -182,7 +182,7 @@ and uploads last.
 On GitHub Actions:
 
 ```yaml
-- uses: prongbang/shlane@v0.4.0
+- uses: prongbang/shlane@v0.5.0
   with:
     lane: beta
     args: --report junit:reports/shlane.xml
