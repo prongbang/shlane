@@ -53,7 +53,11 @@ pub fn credential_problems(provided: &BTreeMap<String, String>) -> Vec<String> {
     let supplied_legacy: Vec<&str> = legacy
         .iter()
         .copied()
-        .filter(|name| provided.contains_key(*name))
+        .filter(|name| {
+            provided
+                .get(*name)
+                .is_some_and(|value| !value.trim().is_empty())
+        })
         .collect();
 
     if has_object && !supplied_legacy.is_empty() {
@@ -69,7 +73,11 @@ pub fn credential_problems(provided: &BTreeMap<String, String>) -> Vec<String> {
     let missing: Vec<&str> = legacy
         .iter()
         .copied()
-        .filter(|name| !provided.contains_key(*name))
+        .filter(|name| {
+            provided
+                .get(*name)
+                .is_none_or(|value| value.trim().is_empty())
+        })
         .collect();
     vec![format!(
         "needs api_key or the remaining legacy arguments: {}",
@@ -127,7 +135,7 @@ fn parse_object(value: &str) -> Result<CredentialObject, String> {
         String::from_utf8(bytes)
             .map_err(|_| "api_key base64 must decode to UTF-8 JSON".to_string())?
     };
-    let object: CredentialObject = serde_yaml::from_str(&text).map_err(|_| {
+    let object: CredentialObject = serde_json::from_str(&text).map_err(|_| {
         "api_key must be a JSON object with keyId, issuerId and authKey".to_string()
     })?;
 
@@ -346,6 +354,14 @@ mod tests {
         let key = load_object(&encoded, Path::new(".")).expect("valid object");
         assert_eq!(key.key_id, "K");
         assert_eq!(key.issuer_id, "I");
+    }
+
+    #[test]
+    fn rejects_a_base64_encoded_yaml_apple_key_object() {
+        let encoded = encode_base64(
+            b"keyId: K\nissuerId: I\nauthKey: |\n  -----BEGIN PRIVATE KEY-----\n  abc\n  -----END PRIVATE KEY-----\n",
+        );
+        assert!(parse_object(&encoded).is_err());
     }
 
     #[test]

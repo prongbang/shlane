@@ -39,8 +39,7 @@ impl ServiceAccount {
             }
         };
 
-        // JSON is valid YAML, so this needs no extra parser.
-        serde_yaml::from_str(&text)
+        serde_json::from_str(&text)
             .map_err(|_| "this does not look like a service account key".to_string())
     }
 
@@ -281,6 +280,14 @@ mod tests {
         let account =
             ServiceAccount::load(&encoded, std::path::Path::new(".")).expect("valid base64 JSON");
         assert_eq!(account.client_email, "a@b.com");
+    }
+
+    #[test]
+    fn rejects_a_base64_encoded_yaml_service_account() {
+        let encoded = encode_base64(
+            b"client_email: a@b.com\nprivate_key: |\n  -----BEGIN PRIVATE KEY-----\n  x\n  -----END PRIVATE KEY-----\n",
+        );
+        assert!(ServiceAccount::load(&encoded, std::path::Path::new(".")).is_err());
     }
 
     #[test]
