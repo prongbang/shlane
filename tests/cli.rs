@@ -2055,8 +2055,8 @@ case "$request" in
     exit 1
     ;;
 esac
-printf '{"type":"secret","value":"runtime-token-98765"}\n'
 printf '{"type":"log","level":"info","message":"sending with runtime-token-98765"}\n'
+printf '{"type":"secret","value":"runtime-token-98765"}\n'
 printf '{"type":"result","ok":true,"outputs":{"id":"msg-1"}}\n'
 "#,
     );
@@ -2091,6 +2091,7 @@ fn a_plugin_action_runs_and_reports_its_outputs() {
     let run = sandbox.run(&["run", "notify"]);
     run.assert_code(0)
         .assert_stdout_contains("message id msg-1");
+    run.assert_stdout_contains("sending with ***");
 
     let everything = format!("{}{}", run.stdout, run.stderr);
     assert!(

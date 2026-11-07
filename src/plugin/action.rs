@@ -162,6 +162,14 @@ impl Action for PluginAction {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let (events, ignored) = protocol::parse_events(&stdout);
 
+        // Register the plugin's complete secret set before displaying any of
+        // its output, since secrets can be declared after log events.
+        for event in &events {
+            if let Event::Secret { value } = event {
+                ctx.mark_secret(value);
+            }
+        }
+
         // A plugin's stderr is its own diagnostics, not shlane's.
         for line in stderr.lines().filter(|line| !line.trim().is_empty()) {
             ctx.ui.warn(&format!("{}: {line}", self.plugin));
@@ -178,9 +186,7 @@ impl Action for PluginAction {
                     "warn" | "warning" => ctx.ui.warn(&message),
                     _ => ctx.ui.say(&message),
                 },
-                // Registered before anything else is printed, so a value the
-                // plugin discovered at runtime is masked from here on.
-                Event::Secret { value } => ctx.mark_secret(&value),
+                Event::Secret { .. } => {}
                 Event::Result {
                     ok,
                     message,
