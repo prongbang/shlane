@@ -27,10 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - id: check
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           crate=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$crate" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match version $crate in Cargo.toml; bump Cargo.toml, commit, then tag"
+          if [ "${RELEASE_TAG#v}" != "$crate" ]; then
+            echo "::error::tag $RELEASE_TAG does not match version $crate in Cargo.toml; bump Cargo.toml, commit, then tag"
             exit 1
           fi
           echo "version=$crate" >> "$GITHUB_OUTPUT"
@@ -45,9 +47,9 @@ jobs:
         include:
           # The one most people doing mobile work are on.
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-15
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-15
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
@@ -82,9 +84,11 @@ jobs:
 
       - name: Package
         id: package
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$VERSION"
           name="shlane-${version}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
           cp "target/${{ matrix.target }}/release/shlane${{ matrix.exe }}" "dist/${name}/"
@@ -105,7 +109,7 @@ jobs:
           path: dist/*.tar.gz*
 
   publish:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -120,8 +124,10 @@ jobs:
 
       - name: Take the release notes from the changelog
         id: notes
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$VERSION"
           # Everything between this version's heading and the next one.
           awk -v v="$version" '
             $0 ~ "^## \\[?" v "\\]?" { found = 1; next }
@@ -137,10 +143,12 @@ jobs:
       # everyone.
       - name: Only the highest version is the latest release
         id: latest
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           git fetch --quiet --tags --force
           top=$(git tag -l 'v*' | sort -V | tail -n 1)
-          if [ "$top" = "$GITHUB_REF_NAME" ]; then
+          if [ "$top" = "$RELEASE_TAG" ]; then
             echo "value=true" >> "$GITHUB_OUTPUT"
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
@@ -148,6 +156,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
@@ -161,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only for a pushed tag: a manual run builds whatever branch it was started
     # on, and crates.io cannot take a version back.
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

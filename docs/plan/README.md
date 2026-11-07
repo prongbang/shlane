@@ -41,6 +41,7 @@ of about 200 lines — to a tool that can stand in for
 | [18-store-credential-objects.md](18-store-credential-objects.md) | Apple and Play Store JSON/base64 credentials in v0.3.0 |
 | [19-store-credential-objects-implementation.md](19-store-credential-objects-implementation.md) | v0.3.0 implementation plan for store credentials |
 | [20-log-masking-coverage.md](20-log-masking-coverage.md) | Close gaps in sensitive-value masking across logs and emitted output |
+| [21-release-runner-recovery.md](21-release-runner-recovery.md) | Recover v0.5.1 release builds from the retired macOS 14 ARM runner |
 
 ## How to read it
 
