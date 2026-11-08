@@ -14,7 +14,7 @@ fn git_add_args(paths: &str) -> Option<Vec<String>> {
     Some(
         std::iter::once("add".to_string())
             .chain(std::iter::once("--".to_string()))
-            .chain(shlex::split(paths)?.into_iter())
+            .chain(shlex::split(paths)?)
             .collect(),
     )
 }

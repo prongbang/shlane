@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-08
+
+### Fixed
+
+- Keep action inputs out of shell source and enforce argument boundaries for built-in
+  process execution.
+- Require plugin checksums before execution and cap downloaded response sizes.
+- Pass composite GitHub Action inputs as data rather than interpolated shell code.
+
 ## [0.5.2] - 2026-11-08
 
 ### Fixed

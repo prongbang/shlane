@@ -51,7 +51,6 @@ impl Secrets {
         if encoded != value && encoded.len() >= MIN_LENGTH {
             self.values.insert(encoded);
         }
-
     }
 
     /// Register an environment variable if its name looks sensitive.
