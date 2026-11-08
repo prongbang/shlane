@@ -6,12 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-08
+
+### Fixed
+
+- Keep secret masking limited to raw and URL-encoded values while masking plugin
+  logs even when a secret declaration comes later in the plugin event stream.
+
 ## [0.5.1] - 2026-11-08
 
 ### Fixed
 
-- Registered secrets are now masked in Base64 form, and plugin secret declarations
-  are applied before any plugin output is displayed.
+- Plugin secret declarations are applied before any plugin output is displayed.
 
 ## [0.5.0] - 2026-09-22
 

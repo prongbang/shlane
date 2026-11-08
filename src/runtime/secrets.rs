@@ -52,10 +52,6 @@ impl Secrets {
             self.values.insert(encoded);
         }
 
-        let encoded = base64_encode(value.as_bytes());
-        if encoded != value && encoded.len() >= MIN_LENGTH {
-            self.values.insert(encoded);
-        }
     }
 
     /// Register an environment variable if its name looks sensitive.
@@ -105,29 +101,6 @@ fn url_encode(value: &str) -> String {
     out
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let first = chunk[0];
-        let second = chunk.get(1).copied().unwrap_or_default();
-        let third = chunk.get(2).copied().unwrap_or_default();
-        out.push(TABLE[(first >> 2) as usize] as char);
-        out.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[(third & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,13 +125,6 @@ mod tests {
         secrets.add("a b/c+d");
         let masked = secrets.mask("https://x/?k=a%20b%2Fc%2Bd");
         assert!(!masked.contains("a%20b"), "got: {masked}");
-    }
-
-    #[test]
-    fn masks_base64_forms() {
-        let mut secrets = Secrets::new();
-        secrets.add("hunter2000");
-        assert_eq!(secrets.mask("encoded=aHVudGVyMjAwMA=="), "encoded=***");
     }
 
     #[test]
