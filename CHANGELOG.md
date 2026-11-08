@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-08
+
+### Fixed
+
+- Allow up to ten minutes for Google Play App Bundle uploads.
+
 ## [0.5.3] - 2026-11-08
 
 ### Fixed
