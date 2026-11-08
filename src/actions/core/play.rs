@@ -21,7 +21,7 @@ const API: &str = "https://androidpublisher.googleapis.com/androidpublisher/v3/a
 const UPLOAD: &str =
     "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications";
 const API_TIMEOUT: Duration = Duration::from_secs(30);
-const BUNDLE_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+const BUNDLE_UPLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Deserialize)]
 struct Edit {
@@ -307,8 +307,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundle_upload_timeout_is_two_minutes() {
-        assert_eq!(BUNDLE_UPLOAD_TIMEOUT, Duration::from_secs(120));
+    fn bundle_upload_timeout_is_ten_minutes() {
+        assert_eq!(BUNDLE_UPLOAD_TIMEOUT, Duration::from_secs(600));
     }
 
     #[test]
