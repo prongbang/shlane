@@ -14,11 +14,14 @@ use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::Result;
 use serde::Deserialize;
 use std::fs;
+use std::time::Duration;
 
 const SCOPE: &str = "https://www.googleapis.com/auth/androidpublisher";
 const API: &str = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications";
 const UPLOAD: &str =
     "https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications";
+const API_TIMEOUT: Duration = Duration::from_secs(30);
+const BUNDLE_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Deserialize)]
 struct Edit {
@@ -155,6 +158,7 @@ impl Action for PlayStore {
             &edits_url(package),
             &auth,
             Payload::Empty,
+            API_TIMEOUT,
         )?;
 
         let bytes = fs::read(&path).map_err(|err| {
@@ -183,6 +187,7 @@ impl Action for PlayStore {
             &upload_url(package, &edit.id, kind),
             &upload_headers,
             Payload::Bytes(&bytes),
+            BUNDLE_UPLOAD_TIMEOUT,
         )?;
 
         ctx.ui.say(&format!(
@@ -204,6 +209,7 @@ impl Action for PlayStore {
             &track_url(package, &edit.id, track),
             &auth,
             Payload::Text(&body),
+            API_TIMEOUT,
         )?;
 
         let _: serde_yaml::Value = call(
@@ -213,6 +219,7 @@ impl Action for PlayStore {
             &commit_url(package, &edit.id),
             &auth,
             Payload::Empty,
+            API_TIMEOUT,
         )?;
 
         ctx.ui.say("Committed");
@@ -266,9 +273,11 @@ fn call<T: for<'de> Deserialize<'de>>(
     url: &str,
     headers: &[(String, String)],
     body: Payload<'_>,
+    timeout: Duration,
 ) -> Result<T> {
-    let response = send(ctx, method, url, headers, body)
-        .map_err(|message| ctx.error(action, format!("{method} {url} failed: {message}")))?;
+    let response =
+        crate::actions::core::http::send_with_timeout(ctx, method, url, headers, body, timeout)
+            .map_err(|message| ctx.error(action, format!("{method} {url} failed: {message}")))?;
 
     if !(200..300).contains(&response.status) {
         return Err(ctx.error(
@@ -296,6 +305,11 @@ fn call<T: for<'de> Deserialize<'de>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundle_upload_timeout_is_two_minutes() {
+        assert_eq!(BUNDLE_UPLOAD_TIMEOUT, Duration::from_secs(120));
+    }
 
     #[test]
     fn builds_the_api_urls() {

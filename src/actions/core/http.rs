@@ -12,10 +12,14 @@ const RETRIES: u32 = 3;
 const BACKOFF: Duration = Duration::from_millis(500);
 
 fn agent() -> ureq::Agent {
+    agent_with_timeout(TIMEOUT)
+}
+
+fn agent_with_timeout(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         // A 4xx or 5xx is a result to report, not a transport error.
         .http_status_as_error(false)
-        .timeout_global(Some(TIMEOUT))
+        .timeout_global(Some(timeout))
         .build()
         .into()
 }
@@ -43,7 +47,18 @@ pub fn send(
     headers: &[(String, String)],
     body: Payload<'_>,
 ) -> std::result::Result<Response, String> {
-    let agent = agent();
+    send_with_timeout(ctx, method, url, headers, body, TIMEOUT)
+}
+
+pub fn send_with_timeout(
+    ctx: &ActionContext<'_>,
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Payload<'_>,
+    timeout: Duration,
+) -> std::result::Result<Response, String> {
+    let agent = agent_with_timeout(timeout);
     let mut last = String::new();
 
     for attempt in 1..=RETRIES {
