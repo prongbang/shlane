@@ -20,65 +20,73 @@ fn quote(value: &str) -> String {
 }
 
 /// `-workspace X` or `-project Y`, whichever the config gave.
-fn project_flag(args: &Args) -> Option<String> {
+fn project_flag(args: &Args) -> Option<(&'static str, &str)> {
     if let Some(workspace) = args.get("workspace") {
-        return Some(format!("-workspace {}", quote(workspace)));
+        return Some(("-workspace", workspace));
     }
-    args.get("project")
-        .map(|project| format!("-project {}", quote(project)))
+    args.get("project").map(|project| ("-project", project))
 }
 
-/// `xcodebuild archive ...`
-fn archive_command(args: &Args, archive_path: &str) -> String {
-    let mut parts = vec!["xcodebuild".to_string()];
+fn parse_xcargs(raw: Option<&str>) -> Option<Vec<String>> {
+    raw.map(shlex::split).unwrap_or_else(|| Some(Vec::new()))
+}
+
+/// Arguments for `xcodebuild archive`.
+fn archive_args(args: &Args, archive_path: &str) -> Option<Vec<String>> {
+    let mut parts = Vec::new();
     if args.flag("clean") {
         parts.push("clean".to_string());
     }
     parts.push("archive".to_string());
 
-    if let Some(flag) = project_flag(args) {
-        parts.push(flag);
+    if let Some((flag, value)) = project_flag(args) {
+        parts.extend([flag.to_string(), value.to_string()]);
     }
-    parts.push(format!("-scheme {}", quote(args.get_or("scheme", ""))));
-    parts.push(format!(
-        "-configuration {}",
-        quote(args.get_or("configuration", "Release"))
-    ));
-    parts.push(format!(
-        "-destination {}",
-        quote(args.get_or("destination", "generic/platform=iOS"))
-    ));
-    parts.push(format!("-archivePath {}", quote(archive_path)));
+    parts.extend(["-scheme".to_string(), args.get_or("scheme", "").to_string()]);
+    parts.extend([
+        "-configuration".to_string(),
+        args.get_or("configuration", "Release").to_string(),
+    ]);
+    parts.extend([
+        "-destination".to_string(),
+        args.get_or("destination", "generic/platform=iOS")
+            .to_string(),
+    ]);
+    parts.extend(["-archivePath".to_string(), archive_path.to_string()]);
 
     if let Some(sdk) = args.get("sdk") {
-        parts.push(format!("-sdk {}", quote(sdk)));
+        parts.extend(["-sdk".to_string(), sdk.to_string()]);
     }
     if let Some(team) = args.get("team_id") {
-        parts.push(format!("DEVELOPMENT_TEAM={}", quote(team)));
+        parts.push(format!("DEVELOPMENT_TEAM={team}"));
     }
     if args.flag("allow_provisioning_updates") {
         parts.push("-allowProvisioningUpdates".to_string());
     }
-    if let Some(extra) = args.get("xcargs") {
-        parts.push(extra.to_string());
-    }
-
-    parts.join(" ")
+    parts.extend(parse_xcargs(args.get("xcargs"))?);
+    Some(parts)
 }
 
-/// `xcodebuild -exportArchive ...`
-fn export_command(archive_path: &str, options_path: &str, output_dir: &str, args: &Args) -> String {
+/// Arguments for `xcodebuild -exportArchive`.
+fn export_args(
+    archive_path: &str,
+    options_path: &str,
+    output_dir: &str,
+    args: &Args,
+) -> Vec<String> {
     let mut parts = vec![
-        "xcodebuild".to_string(),
         "-exportArchive".to_string(),
-        format!("-archivePath {}", quote(archive_path)),
-        format!("-exportOptionsPlist {}", quote(options_path)),
-        format!("-exportPath {}", quote(output_dir)),
+        "-archivePath".to_string(),
+        archive_path.to_string(),
+        "-exportOptionsPlist".to_string(),
+        options_path.to_string(),
+        "-exportPath".to_string(),
+        output_dir.to_string(),
     ];
     if args.flag("allow_provisioning_updates") {
         parts.push("-allowProvisioningUpdates".to_string());
     }
-    parts.join(" ")
+    parts
 }
 
 /// The plist `-exportArchive` insists on.
@@ -206,8 +214,9 @@ impl Action for BuildIos {
         let archive = output_dir.join(format!("{scheme}.xcarchive"));
         let options = output_dir.join("ExportOptions.plist");
 
-        let archive_command = archive_command(args, &archive.display().to_string());
-        let export_command = export_command(
+        let archive_args = archive_args(args, &archive.display().to_string())
+            .ok_or_else(|| ctx.error(self.name(), "unmatched quote in xcargs"))?;
+        let export_args = export_args(
             &archive.display().to_string(),
             &options.display().to_string(),
             &output_dir.display().to_string(),
@@ -217,10 +226,12 @@ impl Action for BuildIos {
         let skip_export = args.flag("skip_export");
 
         if ctx.dry_run {
-            ctx.ui.say(&format!("Would run: {archive_command}"));
+            ctx.ui
+                .say(&format!("Would run: xcodebuild {archive_args:?}"));
             if !skip_export {
                 ctx.ui.say(&format!("Would write {}", options.display()));
-                ctx.ui.say(&format!("Would run: {export_command}"));
+                ctx.ui
+                    .say(&format!("Would run: xcodebuild {export_args:?}"));
             }
             return Ok(ActionOutput::new().with("archive", archive.display().to_string()));
         }
@@ -231,7 +242,7 @@ impl Action for BuildIos {
                 format!("cannot create {}: {err}", output_dir.display()),
             )
         })?;
-        ctx.require(&archive_command)?;
+        ctx.require_program("xcodebuild", &archive_args)?;
 
         let dsyms = archive.join("dSYMs");
         let dsym = if dsyms.is_dir() {
@@ -260,7 +271,7 @@ impl Action for BuildIos {
                 format!("cannot write {}: {err}", options.display()),
             )
         })?;
-        ctx.require(&export_command)?;
+        ctx.require_program("xcodebuild", &export_args)?;
 
         let Some(ipa) = first_with_extension(&output_dir, "ipa") else {
             return Err(ctx.error(
@@ -315,33 +326,33 @@ impl Action for TestIos {
         let bundle = ctx
             .workdir()
             .join(args.get_or("result_bundle", "build/tests.xcresult"));
-        let mut parts = vec!["xcodebuild".to_string(), "test".to_string()];
-        if let Some(flag) = project_flag(args) {
-            parts.push(flag);
+        let mut parts = vec!["test".to_string()];
+        if let Some((flag, value)) = project_flag(args) {
+            parts.extend([flag.to_string(), value.to_string()]);
         }
-        parts.push(format!("-scheme {}", quote(args.get_or("scheme", ""))));
-        parts.push(format!(
-            "-configuration {}",
-            quote(args.get_or("configuration", "Debug"))
-        ));
-        parts.push(format!(
-            "-destination {}",
-            quote(args.get_or("destination", "platform=iOS Simulator,name=iPhone 15"))
-        ));
-        parts.push(format!(
-            "-resultBundlePath {}",
-            quote(&bundle.display().to_string())
-        ));
+        parts.extend(["-scheme".to_string(), args.get_or("scheme", "").to_string()]);
+        parts.extend([
+            "-configuration".to_string(),
+            args.get_or("configuration", "Debug").to_string(),
+        ]);
+        parts.extend([
+            "-destination".to_string(),
+            args.get_or("destination", "platform=iOS Simulator,name=iPhone 15")
+                .to_string(),
+        ]);
+        parts.extend([
+            "-resultBundlePath".to_string(),
+            bundle.display().to_string(),
+        ]);
         if args.flag("code_coverage") {
-            parts.push("-enableCodeCoverage YES".to_string());
+            parts.extend(["-enableCodeCoverage".to_string(), "YES".to_string()]);
         }
-        if let Some(extra) = args.get("xcargs") {
-            parts.push(extra.to_string());
-        }
-
-        let command = parts.join(" ");
+        parts.extend(
+            parse_xcargs(args.get("xcargs"))
+                .ok_or_else(|| ctx.error(self.name(), "unmatched quote in xcargs"))?,
+        );
         if ctx.dry_run {
-            ctx.ui.say(&format!("Would run: {command}"));
+            ctx.ui.say(&format!("Would run: xcodebuild {parts:?}"));
             // The paths are known without running anything, so a later step
             // that refers to them still resolves.
             let mut output =
@@ -359,7 +370,7 @@ impl Action for TestIos {
 
         // Not `require`: a failing test suite is the case where the report
         // matters most, so it is written before the failure is reported.
-        let outcome = ctx.sh(&command)?;
+        let outcome = ctx.sh_program("xcodebuild", &parts)?;
 
         let mut output = ActionOutput::new().with("result_bundle", bundle.display().to_string());
 
@@ -446,7 +457,7 @@ impl Action for Keychain {
             ArgSpec::new("password", "Keychain password")
                 .required()
                 .sensitive(),
-            ArgSpec::new("timeout", "Lock again after this many seconds").default("3600"),
+            ArgSpec::new("timeout", "Lock again after 1 to 86400 seconds").default("3600"),
             ArgSpec::new("make_default", "Put it at the front of the search list").default("true"),
         ]
     }
@@ -460,6 +471,10 @@ impl Action for Keychain {
 
         match args.get_or("action", "create") {
             "create" => {
+                let timeout =
+                    super::timeout_seconds(args.get_or("timeout", "3600")).ok_or_else(|| {
+                        ctx.error(self.name(), "timeout must be between 1 and 86400 seconds")
+                    })?;
                 // Recreating is normal on a fresh CI machine, so a delete that
                 // finds nothing is not a failure.
                 let _ = ctx.sh(&format!("security delete-keychain {}", quote(name)));
@@ -470,11 +485,15 @@ impl Action for Keychain {
                     ),
                     &env,
                 )?;
-                ctx.require(&format!(
-                    "security set-keychain-settings -lut {} {}",
-                    args.get_or("timeout", "3600"),
-                    quote(name)
-                ))?;
+                ctx.require_program(
+                    "security",
+                    &[
+                        "set-keychain-settings".to_string(),
+                        "-lut".to_string(),
+                        timeout,
+                        name.to_string(),
+                    ],
+                )?;
                 ctx.require_with_env(
                     &format!(
                         "security unlock-keychain -p \"$SHLANE_KEYCHAIN_PASS\" {}",
@@ -791,7 +810,7 @@ mod tests {
 
     #[test]
     fn archives_a_workspace() {
-        let command = archive_command(
+        let command = archive_args(
             &args(&[
                 ("workspace", "MyApp.xcworkspace"),
                 ("scheme", "MyApp"),
@@ -800,76 +819,100 @@ mod tests {
                 ("allow_provisioning_updates", "true"),
             ]),
             "build/MyApp.xcarchive",
-        );
+        )
+        .expect("valid xcargs");
 
-        assert!(command.starts_with("xcodebuild archive"), "{command}");
-        assert!(
-            command.contains("-workspace 'MyApp.xcworkspace'"),
-            "{command}"
-        );
-        assert!(command.contains("-scheme 'MyApp'"), "{command}");
-        assert!(
-            command.contains("-archivePath 'build/MyApp.xcarchive'"),
-            "{command}"
-        );
-        assert!(command.contains("-allowProvisioningUpdates"), "{command}");
-        assert!(!command.contains("-project"), "{command}");
+        assert_eq!(command[0], "archive");
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-workspace", "MyApp.xcworkspace"]));
+        assert!(command.windows(2).any(|pair| pair == ["-scheme", "MyApp"]));
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-archivePath", "build/MyApp.xcarchive"]));
+        assert!(command.contains(&"-allowProvisioningUpdates".to_string()));
+        assert!(!command.contains(&"-project".to_string()));
     }
 
     #[test]
     fn neither_flag_lets_xcodebuild_resolve_the_directory() {
         // What a Swift package needs: there is no project file to name.
-        let command = archive_command(&args(&[("scheme", "Counter")]), "out.xcarchive");
-        assert!(!command.contains("-project"), "{command}");
-        assert!(!command.contains("-workspace"), "{command}");
-        assert!(command.contains("-scheme 'Counter'"), "{command}");
+        let command =
+            archive_args(&args(&[("scheme", "Counter")]), "out.xcarchive").expect("valid xcargs");
+        assert!(!command.contains(&"-project".to_string()), "{command:?}");
+        assert!(!command.contains(&"-workspace".to_string()), "{command:?}");
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-scheme", "Counter"]));
     }
 
     #[test]
     fn a_project_is_used_when_there_is_no_workspace() {
-        let command = archive_command(
+        let command = archive_args(
             &args(&[("project", "MyApp.xcodeproj"), ("scheme", "MyApp")]),
             "out.xcarchive",
-        );
-        assert!(command.contains("-project 'MyApp.xcodeproj'"), "{command}");
+        )
+        .expect("valid xcargs");
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-project", "MyApp.xcodeproj"]));
     }
 
     #[test]
     fn clean_comes_before_archive() {
-        let command = archive_command(
+        let command = archive_args(
             &args(&[
                 ("project", "A.xcodeproj"),
                 ("scheme", "A"),
                 ("clean", "true"),
             ]),
             "out",
-        );
-        assert!(command.starts_with("xcodebuild clean archive"), "{command}");
+        )
+        .expect("valid xcargs");
+        assert_eq!(&command[..2], ["clean", "archive"]);
     }
 
     #[test]
     fn a_scheme_with_a_space_stays_one_argument() {
-        let command = archive_command(
+        let command = archive_args(
             &args(&[("project", "A.xcodeproj"), ("scheme", "My App")]),
             "out",
-        );
-        assert!(command.contains("-scheme 'My App'"), "{command}");
+        )
+        .expect("valid xcargs");
+        assert!(command.windows(2).any(|pair| pair == ["-scheme", "My App"]));
     }
 
     #[test]
     fn exports_with_the_options_plist() {
-        let command = export_command(
+        let command = export_args(
             "build/MyApp.xcarchive",
             "build/ExportOptions.plist",
             "build",
             &args(&[("allow_provisioning_updates", "true")]),
         );
-        assert!(command.contains("-exportArchive"), "{command}");
         assert!(
-            command.contains("-exportOptionsPlist 'build/ExportOptions.plist'"),
-            "{command}"
+            command.contains(&"-exportArchive".to_string()),
+            "{command:?}"
         );
-        assert!(command.contains("-exportPath 'build'"), "{command}");
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-exportOptionsPlist", "build/ExportOptions.plist"]));
+        assert!(command
+            .windows(2)
+            .any(|pair| pair == ["-exportPath", "build"]));
+    }
+
+    #[test]
+    fn xcargs_are_tokenized_without_shell_evaluation() {
+        assert_eq!(
+            parse_xcargs(Some("-quiet -destination 'name; echo injected'")),
+            Some(vec![
+                "-quiet".to_string(),
+                "-destination".to_string(),
+                "name; echo injected".to_string()
+            ])
+        );
+        assert_eq!(parse_xcargs(Some("'unterminated")), None);
     }
 
     #[test]

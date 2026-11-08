@@ -14,6 +14,29 @@ pub mod version;
 
 use super::Action;
 
+const MAX_KEYCHAIN_TIMEOUT_SECONDS: u64 = 86_400;
+
+pub fn timeout_seconds(value: &str) -> Option<String> {
+    let seconds = value.parse::<u64>().ok()?;
+    (1..=MAX_KEYCHAIN_TIMEOUT_SECONDS)
+        .contains(&seconds)
+        .then(|| seconds.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::timeout_seconds;
+
+    #[test]
+    fn keychain_timeout_accepts_only_bounded_positive_integers() {
+        assert_eq!(timeout_seconds("3600"), Some("3600".to_string()));
+        assert_eq!(timeout_seconds("86400"), Some("86400".to_string()));
+        assert_eq!(timeout_seconds("0"), None);
+        assert_eq!(timeout_seconds("86401"), None);
+        assert_eq!(timeout_seconds("10; echo injected"), None);
+    }
+}
+
 pub fn all() -> Vec<Box<dyn Action>> {
     vec![
         Box::new(shell::Sh),

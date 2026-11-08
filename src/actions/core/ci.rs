@@ -31,8 +31,11 @@ impl Action for SetupCi {
                 "Password for it; a random one is used when this is not given",
             )
             .sensitive(),
-            ArgSpec::new("timeout", "Lock the keychain again after this many seconds")
-                .default("3600"),
+            ArgSpec::new(
+                "timeout",
+                "Lock the keychain again after 1 to 86400 seconds",
+            )
+            .default("3600"),
             ArgSpec::new(
                 "force",
                 "Set up even when this does not look like a CI machine",
@@ -86,6 +89,8 @@ impl Action for SetupCi {
             }
         };
         let env = BTreeMap::from([("SHLANE_KEYCHAIN_PASS".to_string(), password)]);
+        let timeout = super::timeout_seconds(args.get_or("timeout", "3600"))
+            .ok_or_else(|| ctx.error(self.name(), "timeout must be between 1 and 86400 seconds"))?;
         let quoted = shell_quote(name);
 
         // Registered first: if creating it half succeeds, the leftover still
@@ -100,10 +105,15 @@ impl Action for SetupCi {
             &format!("security create-keychain -p \"$SHLANE_KEYCHAIN_PASS\" {quoted}"),
             &env,
         )?;
-        ctx.require(&format!(
-            "security set-keychain-settings -lut {} {quoted}",
-            args.get_or("timeout", "3600")
-        ))?;
+        ctx.require_program(
+            "security",
+            &[
+                "set-keychain-settings".to_string(),
+                "-lut".to_string(),
+                timeout,
+                name.to_string(),
+            ],
+        )?;
         ctx.require_with_env(
             &format!("security unlock-keychain -p \"$SHLANE_KEYCHAIN_PASS\" {quoted}"),
             &env,

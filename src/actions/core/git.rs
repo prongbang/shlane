@@ -10,6 +10,15 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
+fn git_add_args(paths: &str) -> Option<Vec<String>> {
+    Some(
+        std::iter::once("add".to_string())
+            .chain(std::iter::once("--".to_string()))
+            .chain(shlex::split(paths)?.into_iter())
+            .collect(),
+    )
+}
+
 pub struct GitStatusClean;
 
 impl Action for GitStatusClean {
@@ -100,7 +109,9 @@ impl Action for GitCommit {
             return Ok(ActionOutput::new().with("sha", ""));
         }
 
-        ctx.require(&format!("git add -- {paths}"))?;
+        let add_args = git_add_args(paths)
+            .ok_or_else(|| ctx.error(self.name(), "invalid quoting in paths"))?;
+        ctx.require_program("git", &add_args)?;
 
         let staged = ctx.probe("git diff --cached --quiet")?;
         if staged.success && !args.flag("allow_empty") {
@@ -356,6 +367,29 @@ impl Action for ChangelogFromCommits {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_add_arguments_keep_shell_syntax_as_literal_paths() {
+        assert_eq!(
+            git_add_args("'src/My File.txt' other.txt"),
+            Some(vec![
+                "add".to_string(),
+                "--".to_string(),
+                "src/My File.txt".to_string(),
+                "other.txt".to_string()
+            ])
+        );
+        assert_eq!(
+            git_add_args("src/file; echo injected"),
+            Some(vec![
+                "add".to_string(),
+                "--".to_string(),
+                "src/file;".to_string(),
+                "echo".to_string(),
+                "injected".to_string()
+            ])
+        );
+    }
 
     #[test]
     fn quoting_survives_awkward_messages() {

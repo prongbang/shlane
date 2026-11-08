@@ -689,7 +689,9 @@ A lane whose plugin is missing says so and stops rather than downloading anythin
 source with no `@tag` is flagged, and if the lockfile already has an entry, a plugin
 that no longer matches is refused — which is what catches a moved tag. The clone's git
 history is discarded, so a plugin cannot be updated in place without going through the
-checksum again.
+checksum again. Every configured plugin must have a matching entry in
+`shlane-plugins.lock` before `shlane run` will load it. After `plugin install`, run
+`plugin lock` and commit the lockfile before running lanes that use the plugin.
 
 <!-- ANCHOR_END: plugins -->
 

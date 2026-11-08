@@ -69,6 +69,11 @@ impl ActionContext<'_> {
         self.spawn_with(command, false, true, extra)
     }
 
+    /// Run a program directly and return its outcome, skipping it in dry-run mode.
+    pub fn sh_program(&self, program: &str, args: &[String]) -> Result<shell::Outcome> {
+        self.run_program(program, args, false, true, &BTreeMap::new())
+    }
+
     /// Like [`require`](Self::require), with extra environment.
     pub fn require_with_env(
         &self,
@@ -89,6 +94,30 @@ impl ActionContext<'_> {
             return Err(self.failed(command, &outcome));
         }
         Ok(outcome)
+    }
+
+    /// Run a program with distinct arguments, skipping it during a dry run.
+    pub fn require_program(&self, program: &str, args: &[String]) -> Result<shell::Outcome> {
+        self.require_program_with_env(program, args, &BTreeMap::new())
+    }
+
+    /// Like [`require_program`](Self::require_program), with command-only environment values.
+    pub fn require_program_with_env(
+        &self,
+        program: &str,
+        args: &[String],
+        extra: &BTreeMap<String, String>,
+    ) -> Result<shell::Outcome> {
+        let outcome = self.run_program(program, args, false, true, extra)?;
+        if !outcome.success {
+            return Err(self.failed(program, &outcome));
+        }
+        Ok(outcome)
+    }
+
+    /// Read using a program and distinct arguments; runs during dry runs.
+    pub fn probe_program(&self, program: &str, args: &[String]) -> Result<shell::Outcome> {
+        self.run_program(program, args, true, false, &BTreeMap::new())
     }
 
     /// Read something: the command runs even under `--dry-run`.
@@ -142,6 +171,37 @@ impl ActionContext<'_> {
             quiet,
             secrets: &secrets,
         })
+    }
+
+    fn run_program(
+        &self,
+        program: &str,
+        args: &[String],
+        quiet: bool,
+        skip_on_dry_run: bool,
+        extra: &BTreeMap<String, String>,
+    ) -> Result<shell::Outcome> {
+        let display = format!("{program} {args:?}");
+        if self.dry_run && skip_on_dry_run {
+            self.ui.say(&format!("Would run: {display}"));
+            return Ok(shell::Outcome {
+                code: Some(0),
+                success: true,
+                timed_out: false,
+                interrupted: false,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+
+        let secrets = self.secrets.borrow().clone();
+        let mut env = self.env.clone();
+        env.extend(
+            extra
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        shell::run_program(program, args, &env, &self.workdir, quiet, &secrets)
     }
 
     fn failed(&self, command: &str, outcome: &shell::Outcome) -> ShlaneError {

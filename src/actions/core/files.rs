@@ -486,7 +486,7 @@ impl Action for Download {
 
     fn schema(&self) -> Vec<ArgSpec> {
         vec![
-            ArgSpec::new("url", "What to fetch").required(),
+            ArgSpec::new("url", "What to fetch (maximum response size: 512 MiB)").required(),
             ArgSpec::new("output", "Where to write it").required(),
             ArgSpec::new("headers", "Extra headers, one per line as Name: value").sensitive(),
             ArgSpec::new(

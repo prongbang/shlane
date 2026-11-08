@@ -3,11 +3,10 @@
 use crate::config::loader::Discovered;
 use crate::error::{Result, ShlaneError};
 use crate::plugin::{self, protocol, Loaded};
-use std::io::Write;
 use std::process::Stdio;
 
 pub fn list(found: &Discovered) -> Result<()> {
-    let plugins = plugin::load_all(&found.config, &found.root)?;
+    let plugins = plugin::load_all_unverified(&found.config, &found.root)?;
     if plugins.is_empty() {
         println!("no plugins in {}", found.path.display());
         return Ok(());
@@ -110,7 +109,7 @@ pub fn install(found: &Discovered, force: bool) -> Result<()> {
 }
 
 pub fn lock(found: &Discovered) -> Result<()> {
-    let plugins = plugin::load_all(&found.config, &found.root)?;
+    let plugins = plugin::load_all_unverified(&found.config, &found.root)?;
     let path = plugin::write_lockfile(&found.root, &plugins)?;
     println!("Wrote {} ({} plugin(s))", path.display(), plugins.len());
     println!("Commit it: a plugin runs with the same permissions as shlane itself.");
@@ -266,9 +265,8 @@ fn describe(plugin: &Loaded, action: &str) -> std::result::Result<Described, Str
         .spawn()
         .map_err(|err| format!("cannot start {}: {err}", plugin.entry.display()))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(request.as_bytes());
-        let _ = stdin.write_all(b"\n");
+    if let Some(stdin) = child.stdin.take() {
+        let _ = plugin::action::write_request(stdin, request.as_bytes());
     }
 
     let output = child

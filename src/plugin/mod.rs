@@ -148,7 +148,13 @@ fn verify_against_lockfile(loaded: &[Loaded], root: &Path) -> Result<()> {
 
     for plugin in loaded {
         let Some(expected) = expected.get(&plugin.manifest.name) else {
-            continue;
+            return Err(ShlaneError::ConfigProblems {
+                path: root.join(LOCKFILE),
+                problems: vec![format!(
+                    "plugin '{}' has no checksum in the lockfile; run `shlane plugin lock` and commit the lockfile before running it",
+                    plugin.manifest.name
+                )],
+            });
         };
         let actual = plugin.checksum()?;
         if &actual != expected {

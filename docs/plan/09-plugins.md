@@ -91,7 +91,9 @@ shlane plugin verify          # checksum and protocol version
 ## Security requirements
 
 1. `shlane run` never installs a plugin — `plugin add` has to be run deliberately.
-2. The lockfile has to carry checksums, and they are checked before every run.
+2. Every configured plugin must have a lockfile checksum, and it is checked before the
+   plugin is loaded for every run. A missing entry is an error; run `shlane plugin lock`
+   and commit the lockfile before executing the plugin.
 3. `shlane run` prints the plugins it loaded as it starts, so they appear in CI's audit
    log.
 4. A plugin does not receive the context's secrets — only the values named in that

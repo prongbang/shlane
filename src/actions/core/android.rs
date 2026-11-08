@@ -24,8 +24,8 @@ fn parse_pairs(raw: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn split_flags(raw: &str) -> Vec<String> {
-    raw.split_whitespace().map(str::to_string).collect()
+fn split_flags(raw: &str) -> Option<Vec<String>> {
+    shlex::split(raw)
 }
 
 /// `prod` + `release` -> `bundleProdRelease`.
@@ -55,29 +55,28 @@ fn capitalize(text: &str) -> String {
 /// [`gradle_env_secrets`] returns them -- or the value shlane went out of its
 /// way to keep off the command line still appears in gradle's own output.
 fn gradle_command(
-    exe: &str,
     tasks: &[String],
     properties: &[(String, String)],
     flags: &[String],
-) -> (String, BTreeMap<String, String>) {
-    let mut command = vec![exe.to_string()];
+) -> (Vec<String>, BTreeMap<String, String>) {
+    let mut command = Vec::new();
     let mut env = BTreeMap::new();
 
     for task in tasks {
-        command.push(quote(task));
+        command.push(task.clone());
     }
     for (key, value) in properties {
         if is_sensitive_name(key) {
             env.insert(format!("ORG_GRADLE_PROJECT_{key}"), value.clone());
         } else {
-            command.push(format!("-P{key}={}", quote(value)));
+            command.push(format!("-P{key}={value}"));
         }
     }
     for flag in flags {
         command.push(flag.clone());
     }
 
-    (command.join(" "), env)
+    (command, env)
 }
 
 /// The property values that [`gradle_command`] routed through the environment,
@@ -96,6 +95,30 @@ fn gradle_executable(project_dir: &Path, wrapper: bool) -> String {
         return "./gradlew".to_string();
     }
     "gradle".to_string()
+}
+
+fn run_gradle(
+    ctx: &ActionContext<'_>,
+    executable: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> crate::error::Result<crate::runtime::shell::Outcome> {
+    #[cfg(windows)]
+    {
+        let shell = crate::runtime::shell::shell(ctx.env)?;
+        let mut shell_args = vec![
+            "-c".to_string(),
+            "exec \"$@\"".to_string(),
+            "shlane-gradle".to_string(),
+            executable.to_string(),
+        ];
+        shell_args.extend_from_slice(args);
+        ctx.require_program_with_env(&shell, &shell_args, env)
+    }
+    #[cfg(not(windows))]
+    {
+        ctx.require_program_with_env(executable, args, env)
+    }
 }
 
 fn project_dir(ctx: &ActionContext<'_>, args: &Args) -> PathBuf {
@@ -185,15 +208,12 @@ impl Action for Gradle {
             ctx.mark_secret(&value);
         }
 
-        let (command, env) = gradle_command(
-            &exe,
-            &tasks,
-            &properties,
-            &split_flags(args.get_or("flags", "--no-daemon")),
-        );
+        let flags = split_flags(args.get_or("flags", "--no-daemon"))
+            .ok_or_else(|| ctx.error(self.name(), "invalid quoting in Gradle flags"))?;
+        let (command, env) = gradle_command(&tasks, &properties, &flags);
 
         let previous = std::mem::replace(&mut ctx.workdir, dir);
-        let result = ctx.require_with_env(&command, &env);
+        let result = run_gradle(ctx, &exe, &command, &env);
         ctx.workdir = previous;
         result?;
 
@@ -250,17 +270,14 @@ impl Action for BuildAndroid {
             ctx.mark_secret(&value);
         }
 
-        let (command, env) = gradle_command(
-            &exe,
-            std::slice::from_ref(&task),
-            &properties,
-            &split_flags(args.get_or("flags", "--no-daemon")),
-        );
+        let flags = split_flags(args.get_or("flags", "--no-daemon"))
+            .ok_or_else(|| ctx.error(self.name(), "invalid quoting in Gradle flags"))?;
+        let (command, env) = gradle_command(std::slice::from_ref(&task), &properties, &flags);
 
         ctx.ui.say(&format!("Gradle task {task}"));
 
         let previous = std::mem::replace(&mut ctx.workdir, dir.clone());
-        let result = ctx.require_with_env(&command, &env);
+        let result = run_gradle(ctx, &exe, &command, &env);
         ctx.workdir = previous;
         result?;
 
@@ -330,15 +347,12 @@ impl Action for TestAndroid {
 
         let dir = project_dir(ctx, args);
         let exe = gradle_executable(&dir, args.flag("wrapper"));
-        let (command, env) = gradle_command(
-            &exe,
-            std::slice::from_ref(&task),
-            &[],
-            &split_flags(args.get_or("flags", "--no-daemon")),
-        );
+        let flags = split_flags(args.get_or("flags", "--no-daemon"))
+            .ok_or_else(|| ctx.error(self.name(), "invalid quoting in Gradle flags"))?;
+        let (command, env) = gradle_command(std::slice::from_ref(&task), &[], &flags);
 
         let previous = std::mem::replace(&mut ctx.workdir, dir.clone());
-        let result = ctx.require_with_env(&command, &env);
+        let result = run_gradle(ctx, &exe, &command, &env);
         ctx.workdir = previous;
         result?;
 
@@ -382,21 +396,42 @@ mod tests {
     #[test]
     fn quotes_task_and_property_values() {
         let (command, _) = gradle_command(
-            "./gradlew",
             &["assembleRelease".to_string()],
             &[("version".to_string(), "1.2 3".to_string())],
-            &["--no-daemon".to_string()],
+            &split_flags("--no-daemon").expect("valid flags"),
         );
         assert_eq!(
             command,
-            "./gradlew 'assembleRelease' -Pversion='1.2 3' --no-daemon"
+            vec!["assembleRelease", "-Pversion=1.2 3", "--no-daemon"]
+        );
+    }
+
+    #[test]
+    fn gradle_flags_keep_shell_operators_as_literal_arguments() {
+        assert_eq!(
+            split_flags("--offline; printf injected"),
+            Some(vec![
+                "--offline;".to_string(),
+                "printf".to_string(),
+                "injected".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn gradle_flags_preserve_quoted_argument_groups() {
+        assert_eq!(
+            split_flags("--project-cache-dir 'some path'"),
+            Some(vec![
+                "--project-cache-dir".to_string(),
+                "some path".to_string()
+            ])
         );
     }
 
     #[test]
     fn sensitive_properties_go_through_the_environment() {
         let (command, env) = gradle_command(
-            "gradle",
             &["publish".to_string()],
             &[
                 ("SIGNING_PASSWORD".to_string(), "hunter2".to_string()),
@@ -405,15 +440,18 @@ mod tests {
             &[],
         );
         assert!(
-            !command.contains("hunter2"),
-            "a secret reached the command line: {command}"
+            !command.iter().any(|argument| argument.contains("hunter2")),
+            "a secret reached the command line: {command:?}"
         );
         assert_eq!(
             env.get("ORG_GRADLE_PROJECT_SIGNING_PASSWORD")
                 .map(String::as_str),
             Some("hunter2")
         );
-        assert!(command.contains("-Pflavor='prod'"), "{command}");
+        assert!(
+            command.contains(&"-Pflavor=prod".to_string()),
+            "{command:?}"
+        );
     }
 
     #[test]

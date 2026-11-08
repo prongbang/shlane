@@ -152,11 +152,44 @@ fn is_wsl_launcher(candidate: &Path, system_root: Option<&Path>) -> bool {
 pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
     let shell = shell(spawn.env)?;
     let mut builder = Command::new(&shell);
+    builder.arg("-c").arg(spawn.command);
+    run_builder(
+        builder,
+        &shell,
+        spawn.env,
+        spawn.workdir,
+        spawn.timeout,
+        spawn.quiet,
+        spawn.secrets,
+    )
+}
+
+/// Run a program directly, preserving argument boundaries without a shell.
+pub fn run_program(
+    program: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+    workdir: &Path,
+    quiet: bool,
+    secrets: &Secrets,
+) -> Result<Outcome> {
+    let mut builder = Command::new(program);
+    builder.args(args);
+    run_builder(builder, program, env, workdir, None, quiet, secrets)
+}
+
+fn run_builder(
+    mut builder: Command,
+    name: &str,
+    env: &BTreeMap<String, String>,
+    workdir: &Path,
+    timeout: Option<Duration>,
+    quiet: bool,
+    secrets: &Secrets,
+) -> Result<Outcome> {
     builder
-        .arg("-c")
-        .arg(spawn.command)
-        .current_dir(spawn.workdir)
-        .envs(spawn.env)
+        .current_dir(workdir)
+        .envs(env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -183,7 +216,7 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
     let mut child = builder
         .spawn()
         .map_err(|source| ShlaneError::ShellUnavailable {
-            shell: shell.clone(),
+            shell: name.to_string(),
             source,
         })?;
 
@@ -191,15 +224,15 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let out_reader = reader(stdout, spawn.secrets.clone(), spawn.quiet, false);
-    let err_reader = reader(stderr, spawn.secrets.clone(), spawn.quiet, true);
+    let out_reader = reader(stdout, secrets.clone(), quiet, false);
+    let err_reader = reader(stderr, secrets.clone(), quiet, true);
 
-    let timed_out = match spawn.timeout {
+    let timed_out = match timeout {
         None => {
             child
                 .wait()
                 .map_err(|source| ShlaneError::ShellUnavailable {
-                    shell: shell.clone(),
+                    shell: name.to_string(),
                     source,
                 })?;
             false
@@ -210,7 +243,7 @@ pub fn run(spawn: Spawn<'_>) -> Result<Outcome> {
     let status = child
         .wait()
         .map_err(|source| ShlaneError::ShellUnavailable {
-            shell: shell.clone(),
+            shell: name.to_string(),
             source,
         })?;
 
@@ -335,6 +368,31 @@ fn stop(child: &mut Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn program_arguments_are_not_interpreted_by_a_shell() {
+        let env = BTreeMap::new();
+        let workdir = std::env::current_dir().expect("cwd");
+        let secrets = Secrets::default();
+        let value = "literal; printf injected";
+        let args = vec![
+            "-c".to_string(),
+            "printf '%s' \"$1\"".to_string(),
+            "sh".to_string(),
+            value.to_string(),
+        ];
+
+        let outcome =
+            run_program("sh", &args, &env, &workdir, true, &secrets).expect("program starts");
+
+        assert!(
+            outcome.success,
+            "code={:?}, stdout={:?}, stderr={:?}",
+            outcome.code, outcome.stdout, outcome.stderr
+        );
+        assert_eq!(outcome.stdout.trim_end_matches('\n'), value);
+    }
 
     /// These run everywhere: the rule is about a path, not about the platform,
     /// and a Windows-only test would leave it uncovered on the machines where

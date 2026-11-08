@@ -3,13 +3,38 @@
 use crate::actions::context::ActionContext;
 use crate::actions::{Action, ActionOutput, ArgSpec, Args};
 use crate::error::Result;
+use std::io::Read;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Attempts, and how long to wait before each retry.
 const RETRIES: u32 = 3;
 const BACKOFF: Duration = Duration::from_millis(500);
+
+fn check_response_size(bytes: Vec<u8>, limit: u64) -> std::result::Result<Vec<u8>, String> {
+    if bytes.len() as u64 > limit {
+        return Err(format!("response body exceeds {limit} byte limit"));
+    }
+    Ok(bytes)
+}
+
+fn read_bounded(reader: impl Read, limit: u64) -> std::result::Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("could not read the body: {err}"))?;
+    check_response_size(bytes, limit)
+}
+
+fn read_response(
+    response: &mut ureq::http::Response<ureq::Body>,
+    limit: u64,
+) -> std::result::Result<Vec<u8>, String> {
+    read_bounded(response.body_mut().with_config().reader(), limit)
+}
 
 fn agent() -> ureq::Agent {
     agent_with_timeout(TIMEOUT)
@@ -146,12 +171,9 @@ pub fn fetch_bytes(
         match request.call() {
             Ok(mut response) => {
                 let status = response.status().as_u16();
-                let bytes = response
-                    .body_mut()
-                    .with_config()
-                    .limit(u64::MAX)
-                    .read_to_vec()
-                    .map_err(|err| format!("could not read the body: {err}"))?;
+                // Read at most one byte beyond the cap so an over-limit body
+                // fails without buffering the rest of the response.
+                let bytes = read_response(&mut response, MAX_DOWNLOAD_BYTES)?;
 
                 if status < 500 || attempt == RETRIES {
                     return Ok((status, bytes));
@@ -448,6 +470,68 @@ pub fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_download_bodies_at_or_below_the_limit() {
+        assert_eq!(read_bounded(&[0; 9][..], 10).unwrap().len(), 9);
+        assert_eq!(read_bounded(&[0; 10][..], 10).unwrap().len(), 10);
+    }
+
+    #[test]
+    fn rejects_download_bodies_above_the_limit() {
+        assert_eq!(
+            read_bounded(&[0; 11][..], 10).unwrap_err(),
+            "response body exceeds 10 byte limit"
+        );
+    }
+
+    fn local_response(body: &[u8], limit: u64) -> std::result::Result<Vec<u8>, String> {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+        use std::thread;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local fixture");
+        let address = listener.local_addr().expect("fixture address");
+        let body = body.to_vec();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept local request");
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .expect("write response headers");
+            stream.write_all(&body).expect("write response body");
+        });
+
+        let mut response = agent()
+            .get(format!("http://{address}/download"))
+            .call()
+            .expect("read local response");
+        let result = read_response(&mut response, limit);
+        server.join().expect("fixture server should finish");
+        result
+    }
+
+    #[test]
+    fn local_http_body_below_the_limit_is_read_completely() {
+        assert_eq!(local_response(b"small", 6).unwrap(), b"small");
+    }
+
+    #[test]
+    fn local_http_body_at_the_limit_is_read_completely() {
+        assert_eq!(local_response(b"exact!", 6).unwrap(), b"exact!");
+    }
+
+    #[test]
+    fn local_http_body_over_the_limit_is_rejected() {
+        assert_eq!(
+            local_response(b"too big", 6).unwrap_err(),
+            "response body exceeds 6 byte limit"
+        );
+    }
 
     #[test]
     fn parses_headers() {

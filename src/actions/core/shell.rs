@@ -108,7 +108,8 @@ impl Action for WhichTool {
         // `probe`, not `sh`: under --dry-run the answer to "is it installed"
         // has to be the real one, or the dry run reports a problem that does
         // not exist and hides one that does.
-        let found = ctx.probe(&format!("command -v {name}"))?;
+        let shell = crate::runtime::shell::shell(ctx.env)?;
+        let found = ctx.probe_program(&shell, &lookup_program_args(name))?;
         if !found.success {
             return Err(ctx.error(
                 self.name(),
@@ -122,10 +123,8 @@ impl Action for WhichTool {
             return Ok(ActionOutput::new().with("path", path));
         };
 
-        let reported = ctx.probe(&format!(
-            "{name} {}",
-            args.get_or("version_arg", "--version")
-        ))?;
+        let reported =
+            ctx.probe_program(name, &[args.get_or("version_arg", "--version").to_string()])?;
         let text = format!("{}{}", reported.stdout, reported.stderr);
         let Some(version) = first_version(&text) else {
             return Err(ctx.error(
@@ -146,6 +145,15 @@ impl Action for WhichTool {
             .with("path", path)
             .with("version", version))
     }
+}
+
+fn lookup_program_args(name: &str) -> Vec<String> {
+    vec![
+        "-c".to_string(),
+        "command -v \"$1\"".to_string(),
+        "shlane-which-tool".to_string(),
+        name.to_string(),
+    ]
 }
 
 /// The first dotted number in a `--version` banner, which is where every tool
@@ -193,6 +201,19 @@ fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_passes_the_name_as_a_shell_argument() {
+        assert_eq!(
+            lookup_program_args("git; touch injected"),
+            vec![
+                "-c",
+                "command -v \"$1\"",
+                "shlane-which-tool",
+                "git; touch injected"
+            ]
+        );
+    }
 
     #[test]
     fn finds_the_version_in_a_banner() {

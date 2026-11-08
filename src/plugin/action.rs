@@ -10,6 +10,39 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+pub(crate) fn write_request(mut stdin: impl Write, request: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    unsafe {
+        static SIGPIPE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _lock = SIGPIPE_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        // macOS can deliver a pipe write's SIGPIPE to any unblocked thread.
+        // The child was spawned already, so suppress it only in the parent
+        // while writing, then restore the exact previous signal action.
+        let mut ignored = std::mem::zeroed::<libc::sigaction>();
+        let mut previous = std::mem::zeroed::<libc::sigaction>();
+        ignored.sa_sigaction = libc::SIG_IGN;
+        libc::sigemptyset(&mut ignored.sa_mask);
+        if libc::sigaction(libc::SIGPIPE, &ignored, &mut previous) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let result = stdin
+            .write_all(request)
+            .and_then(|()| stdin.write_all(b"\n"));
+        if libc::sigaction(libc::SIGPIPE, &previous, std::ptr::null_mut()) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        result
+    }
+    #[cfg(not(unix))]
+    {
+        stdin.write_all(request)?;
+        stdin.write_all(b"\n")
+    }
+}
+
 /// How to start a plugin's entry point.
 ///
 /// On unix the file is executed directly and its shebang decides what runs it.
@@ -146,9 +179,8 @@ impl Action for PluginAction {
                 )
             })?;
 
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(request.as_bytes());
-            let _ = stdin.write_all(b"\n");
+        if let Some(stdin) = child.stdin.take() {
+            let _ = write_request(stdin, request.as_bytes());
         }
 
         let output = child.wait_with_output().map_err(|err| {

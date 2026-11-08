@@ -1884,7 +1884,7 @@ fn build_ios_lets_xcodebuild_resolve_the_directory() {
 
     let run = sandbox.run(&["run", "a", "--dry-run"]);
     run.assert_code(0)
-        .assert_stdout_contains("xcodebuild archive");
+        .assert_stdout_contains("xcodebuild [\"archive\"");
     assert!(
         !run.stdout.contains("-project") && !run.stdout.contains("-workspace"),
         "neither flag should be passed when neither was given:\n{}",
@@ -1931,8 +1931,8 @@ lanes:
 
     let run = sandbox.run(&["run", "beta", "--dry-run"]);
     run.assert_code(0)
-        .assert_stdout_contains("xcodebuild archive")
-        .assert_stdout_contains("-workspace 'MyApp.xcworkspace'")
+        .assert_stdout_contains("xcodebuild [\"archive\"")
+        .assert_stdout_contains("\"-workspace\", \"MyApp.xcworkspace\"")
         .assert_stdout_contains("-allowProvisioningUpdates")
         .assert_stdout_contains("-exportArchive")
         .assert_stdout_contains("ExportOptions.plist");
@@ -1955,7 +1955,7 @@ lanes:
 
     let run = sandbox.run(&["run", "archive", "--dry-run"]);
     run.assert_code(0)
-        .assert_stdout_contains("xcodebuild archive");
+        .assert_stdout_contains("xcodebuild [\"archive\"");
     assert!(
         !run.stdout.contains("-exportArchive") && !run.stdout.contains("ExportOptions.plist"),
         "skip_export still exports:\n{}",
@@ -2068,6 +2068,10 @@ printf '{"type":"result","ok":true,"outputs":{"id":"msg-1"}}\n'
         .expect("chmod should run");
 }
 
+fn lock_plugin(sandbox: &Sandbox) {
+    sandbox.run(&["plugin", "lock"]).assert_code(0);
+}
+
 const PLUGIN_CONFIG: &str = r#"
 plugins:
   - name: line-notify
@@ -2087,6 +2091,7 @@ lanes:
 fn a_plugin_action_runs_and_reports_its_outputs() {
     let sandbox = Sandbox::new(PLUGIN_CONFIG);
     write_plugin(&sandbox, "tools/line-notify", None);
+    lock_plugin(&sandbox);
 
     let run = sandbox.run(&["run", "notify"]);
     run.assert_code(0)
@@ -2108,6 +2113,7 @@ fn a_plugin_action_runs_and_reports_its_outputs() {
 fn plugin_actions_are_listed_and_validated_like_built_ins() {
     let sandbox = Sandbox::new(PLUGIN_CONFIG);
     write_plugin(&sandbox, "tools/line-notify", None);
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["action", "list"])
@@ -2140,6 +2146,7 @@ lanes:
 "#,
     );
     write_plugin(&sandbox, "tools/line-notify", None);
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["validate"])
@@ -2165,6 +2172,7 @@ lanes:
 "#,
     );
     write_plugin(&sandbox, "tools/line-notify", None);
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["run", "notify"])
@@ -2221,6 +2229,7 @@ fn a_plugin_that_changed_after_being_locked_is_refused() {
 fn plugin_verify_catches_a_manifest_that_drifted() {
     let sandbox = Sandbox::new(PLUGIN_CONFIG);
     write_plugin(&sandbox, "tools/line-notify", None);
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["plugin", "verify"])
@@ -2318,6 +2327,16 @@ lanes:
         .assert_code(0)
         .assert_stdout_contains("Installed line-notify")
         .assert_stdout_contains("not in the lockfile yet");
+
+    sandbox
+        .run(&["run", "notify"])
+        .assert_code(2)
+        .assert_stderr_contains("has no checksum in the lockfile");
+
+    sandbox
+        .run(&["plugin", "lock"])
+        .assert_code(0)
+        .assert_stdout_contains("1 plugin(s)");
 
     let run = sandbox.run(&["run", "notify"]);
     run.assert_code(0)
@@ -2883,6 +2902,7 @@ fn tag_release(args) {
 }
 "#,
     );
+    lock_plugin(&sandbox);
 
     let run = sandbox.run(&["run", "release"]);
     run.assert_code(0)
@@ -2904,6 +2924,7 @@ fn a_rhai_plugin_is_listed_and_validated_like_any_other() {
         "tools/helpers",
         "fn tag_release(args) { #{ tag: args.version, where: \"here\" } }\n",
     );
+    lock_plugin(&sandbox);
 
     sandbox.run(&["validate"]).assert_code(0);
 
@@ -2928,6 +2949,7 @@ fn a_rhai_plugin_that_fails_fails_the_lane() {
         "tools/helpers",
         "fn tag_release(args) { throw \"the tag already exists\"; }\n",
     );
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["run", "release"])
@@ -2943,6 +2965,7 @@ fn a_rhai_plugin_can_call_back_into_the_action_registry() {
         "tools/helpers",
         "fn tag_release(args) { let r = action(\"sh\", #{ command: \"echo from-the-plugin\" }); #{ tag: \"v1\", where: r.stdout } }\n",
     );
+    lock_plugin(&sandbox);
 
     // The registry is reached through a weak handle, so the plugin it holds can
     // be handed it back without the two keeping each other alive.
@@ -2960,6 +2983,7 @@ fn a_rhai_plugin_has_no_lane_to_call_back_into() {
         "tools/helpers",
         "fn tag_release(args) { call_lane(\"release\"); #{ tag: \"v1\", where: \"here\" } }\n",
     );
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["run", "release"])
@@ -2975,6 +2999,7 @@ fn plugin_verify_checks_a_rhai_script_against_its_manifest() {
         "tools/helpers",
         "fn tag_release(args) { #{ tag: \"v1\" } }\n",
     );
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["plugin", "verify"])
@@ -2986,6 +3011,7 @@ fn plugin_verify_checks_a_rhai_script_against_its_manifest() {
         "tools/helpers/helpers.rhai",
         "fn something_else(args) { #{} }\n",
     );
+    lock_plugin(&sandbox);
     sandbox
         .run(&["plugin", "verify"])
         .assert_code(2)
@@ -2993,6 +3019,7 @@ fn plugin_verify_checks_a_rhai_script_against_its_manifest() {
 
     // A script that does not compile is reported rather than left to a lane.
     sandbox.write("tools/helpers/helpers.rhai", "fn broken( {{{\n");
+    lock_plugin(&sandbox);
     sandbox.run(&["plugin", "verify"]).assert_code(2);
 }
 
@@ -3019,6 +3046,7 @@ fn a_rhai_plugin_returning_the_wrong_shape_is_reported() {
         "tools/helpers",
         "fn tag_release(args) { \"just a string\" }\n",
     );
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["run", "release"])
@@ -3789,6 +3817,7 @@ fn plugin_verify_reports_what_a_plugin_said_before_it_died() {
         "tools/line-notify/notify.sh",
         "#!/bin/sh\necho 'cannot reach the API: no token' >&2\nexit 7\n",
     );
+    lock_plugin(&sandbox);
 
     // "did not answer describe" on its own says nothing about why. Running a
     // plugin relays its stderr; verify has to as well.
@@ -3812,6 +3841,7 @@ echo 'this is not json'
 exit 1
 ",
     );
+    lock_plugin(&sandbox);
 
     sandbox
         .run(&["plugin", "verify"])
@@ -3829,6 +3859,7 @@ fn plugin_verify_says_so_when_a_plugin_prints_nothing_at_all() {
 exit 1
 ",
     );
+    lock_plugin(&sandbox);
 
     // Silence is itself the finding, and worth saying out loud rather than
     // leaving the reader to wonder what was trimmed.

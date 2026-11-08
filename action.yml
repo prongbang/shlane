@@ -65,4 +65,44 @@ runs:
       if: inputs.lane != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: shlane run ${{ inputs.lane }} ${{ inputs.params }} ${{ inputs.args }}
+      env:
+        SHLANE_LANE: ${{ inputs.lane }}
+        SHLANE_PARAMS: ${{ inputs.params }}
+        SHLANE_ARGS: ${{ inputs.args }}
+      run: |
+        split_words() {
+          local input="$1" char quote= word= started=0 escaped=0 i
+          parsed_words=()
+          for ((i = 0; i < ${#input}; i++)); do
+            char="${input:i:1}"
+            if (( escaped )); then
+              if [[ "$quote" == '"' && "$char" != "\\" && "$char" != '"' && "$char" != '$' && "$char" != '`' ]]; then word+="\\"; fi
+              word+="$char"
+              escaped=0
+              started=1
+            elif [[ "$char" == "\\" && "$quote" != "'" ]]; then
+              escaped=1
+              started=1
+            elif [[ -n "$quote" ]]; then
+              if [[ "$char" == "$quote" ]]; then quote=; else word+="$char"; fi
+            elif [[ "$char" == "'" || "$char" == '"' ]]; then
+              quote="$char"
+              started=1
+            elif [[ "$char" =~ [[:space:]] ]]; then
+              if (( started )); then parsed_words+=("$word"); word=; started=0; fi
+            else
+              word+="$char"
+              started=1
+            fi
+          done
+          (( escaped )) && return 1
+          [[ -z "$quote" ]] || return 1
+          if (( started )); then parsed_words+=("$word"); fi
+          return 0
+        }
+
+        split_words "$SHLANE_PARAMS" || { echo "invalid quoting in params" >&2; exit 2; }
+        params=("${parsed_words[@]}")
+        split_words "$SHLANE_ARGS" || { echo "invalid quoting in args" >&2; exit 2; }
+        extra_args=("${parsed_words[@]}")
+        shlane run "$SHLANE_LANE" "${params[@]}" "${extra_args[@]}"
